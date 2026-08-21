@@ -33,6 +33,33 @@ class WhatsAppService {
   }
 
   /**
+   * Send interactive button message to a WhatsApp user
+   * @param {string} to - Recipient phone number
+   * @param {string} text - Message text
+   * @param {Array<{ id: string, text: string }>} buttons - Buttons array
+   * @param {string} [footer=''] - Optional footer
+   * @returns {Promise<object>}
+   */
+  async sendButtonMessage(to, text, buttons = [], footer = '') {
+    const recipient = this.normalizePhoneNumber(to);
+
+    if (!recipient) {
+      logger.error('WhatsApp sendButtonMessage failed: Invalid recipient phone number');
+      throw new Error('Recipient phone number is required');
+    }
+
+    if (this.provider === 'direct') {
+      const whatsappDirectService = require('./whatsappDirectService');
+      const sent = await whatsappDirectService.sendButtonMessage(recipient, text, buttons, footer);
+      return { success: sent, provider: 'direct' };
+    } else {
+      // For OpenWA or Meta fallback, send formatted text menu
+      const menuText = text + '\n\n' + buttons.map(b => `👉 *${b.text}*`).join('\n');
+      return this.sendTextMessage(recipient, menuText);
+    }
+  }
+
+  /**
    * Send a text message to a WhatsApp user
    * @param {string} to - Recipient phone number (e.g. 919876543210)
    * @param {string} text - Message text

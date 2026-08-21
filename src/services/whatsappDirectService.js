@@ -105,18 +105,29 @@ class WhatsAppDirectService {
 
             const pushName = msg.pushName || '';
 
-            // Extract message body text from all possible message formats
-            const text = 
+            // Extract message body text from all possible message and button formats
+            let text = 
+              msg.message.buttonsResponseMessage?.selectedButtonId ||
+              msg.message.buttonsResponseMessage?.selectedDisplayText ||
+              msg.message.templateButtonReplyMessage?.selectedId ||
+              msg.message.templateButtonReplyMessage?.selectedDisplayText ||
+              msg.message.listResponseMessage?.singleSelectReply?.selectedRowId ||
+              msg.message.listResponseMessage?.title ||
               msg.message.conversation ||
               msg.message.extendedTextMessage?.text ||
               msg.message.imageMessage?.caption ||
               msg.message.videoMessage?.caption ||
-              msg.message.buttonsResponseMessage?.selectedDisplayText ||
-              msg.message.listResponseMessage?.title ||
-              msg.message.templateButtonReplyMessage?.selectedId ||
               '';
 
-            if (!text || !text.trim()) continue;
+            // Handle native flow interactive button clicks
+            if (!text && msg.message.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson) {
+              try {
+                const params = JSON.parse(msg.message.interactiveResponseMessage.nativeFlowResponseMessage.paramsJson);
+                text = params.id || params.value || '';
+              } catch (e) {}
+            }
+
+            if (!text || !String(text).trim()) continue;
 
             logger.info(`📥 Received message from ${senderPhone} (${pushName || 'User'}): "${text}"`);
 
@@ -124,14 +135,11 @@ class WhatsAppDirectService {
             const reply = await userService.processIncomingMessage(senderPhone, text, pushName);
 
             if (reply) {
-              const sentMsg = await this.sock.sendMessage(remoteJid, { text: reply });
-              if (sentMsg?.key?.id) {
-                this.sentMessageIds.add(sentMsg.key.id);
-                // Keep sentMessageIds size bounded
-                if (this.sentMessageIds.size > 1000) {
-                  const firstKey = this.sentMessageIds.values().next().value;
-                  this.sentMessageIds.delete(firstKey);
-                }
+              if (typeof reply === 'object' && reply.buttons && reply.buttons.length > 0) {
+                await this.sendButtonMessage(remoteJid, reply.text, reply.buttons, reply.footer);
+              } else {
+                const replyText = typeof reply === 'string' ? reply : reply.text;
+                await this.sendTextMessage(remoteJid, replyText);
               }
               logger.info(`📤 Replied to ${senderPhone}`);
             }
@@ -147,7 +155,61 @@ class WhatsAppDirectService {
   }
 
   /**
-   * Send a WhatsApp message to a phone number
+   * Send interactive button message to a WhatsApp user
+   * @param {string} to - Recipient phone number or JID
+   * @param {string} text - Main message text
+   * @param {Array<{ id: string, text: string }>} buttons - Button list
+   * @param {string} [footer=''] - Optional footer text
+   * @returns {Promise<boolean>}
+   */
+  async sendButtonMessage(to, text, buttons = [], footer = '') {
+    if (!this.sock || !this.isConnected) {
+      logger.warn(`Cannot send button message to ${to}: WhatsApp is not connected yet.`);
+      return false;
+    }
+
+    try {
+      const cleanPhone = to.replace(/@s\.whatsapp\.net|@c\.us/g, '').replace(/\D/g, '');
+      const jid = `${cleanPhone}@s.whatsapp.net`;
+
+      if (!buttons || buttons.length === 0) {
+        return this.sendTextMessage(cleanPhone, text);
+      }
+
+      // 1. Template Buttons (native WhatsApp UI)
+      const templateButtons = buttons.map((btn, idx) => ({
+        index: idx + 1,
+        quickReplyButton: {
+          displayText: btn.text,
+          id: btn.id
+        }
+      }));
+
+      try {
+        const sentMsg = await this.sock.sendMessage(jid, {
+          text: text,
+          footer: footer || 'Water Reminder Bot 💧',
+          templateButtons: templateButtons
+        });
+        if (sentMsg?.key?.id) {
+          this.sentMessageIds.add(sentMsg.key.id);
+        }
+        logger.info(`📤 Sent interactive button message to ${cleanPhone}`);
+        return true;
+      } catch (btnErr) {
+        // Fallback: If template buttons aren't supported on recipient client, format as text menu
+        logger.debug('Template buttons failed, falling back to formatted text:', btnErr.message);
+        const menuText = text + '\n\n' + buttons.map(b => `👉 *${b.text}*`).join('\n');
+        return this.sendTextMessage(cleanPhone, menuText);
+      }
+    } catch (error) {
+      logger.error(`Error sending button message to ${to}:`, error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Send a WhatsApp text message to a phone number
    * @param {string} to - Recipient phone number (e.g. 919876543210)
    * @param {string} text - Message text
    * @returns {Promise<boolean>}

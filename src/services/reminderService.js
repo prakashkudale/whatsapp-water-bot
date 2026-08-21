@@ -100,9 +100,14 @@ class ReminderService {
 
           // 4. Generate adaptive reminder message
           const messageText = this.generateAdaptiveReminderText(todayLog.goal, todayLog.totalConsumed, user);
+          const reminderButtons = [
+            { id: 'quick_250', text: '+250 ml 💧' },
+            { id: 'quick_500', text: '+500 ml 🥤' },
+            { id: 'btn_progress', text: 'Progress 📊' }
+          ];
 
           logger.info(`⏰ Sending scheduled reminder to ${user.phoneNumber}`);
-          await whatsappService.sendTextMessage(user.phoneNumber, messageText);
+          await whatsappService.sendButtonMessage(user.phoneNumber, messageText, reminderButtons, 'Tap a button to log instantly');
 
           // 5. Update lastReminderSentAt to prevent duplicates
           user.lastReminderSentAt = now;
