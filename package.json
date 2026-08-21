@@ -1,0 +1,33 @@
+{
+  "name": "whatsapp-water-reminder-bot",
+  "version": "1.0.0",
+  "description": "A personal WhatsApp Water Reminder Bot built with Node.js, Express, MongoDB, and Meta WhatsApp Cloud API",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon --watch src src/server.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "water-reminder",
+    "health",
+    "nodejs",
+    "mongodb"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
+    "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.5",
+    "node-cron": "^3.0.3",
+    "pino": "^10.3.1",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
