@@ -155,15 +155,7 @@ class WhatsAppDirectService {
   }
 
   /**
-   * Send interactive button message to a WhatsApp user
-   * @param {string} to - Recipient phone number or JID
-   * @param {string} text - Main message text
-   * @param {Array<{ id: string, text: string }>} buttons - Button list
-   * @param {string} [footer=''] - Optional footer text
-   * @returns {Promise<boolean>}
-   */
-  /**
-   * Send interactive button / quick action message to a WhatsApp user
+   * Send interactive action menu message to a WhatsApp user
    * @param {string} to - Recipient phone number or JID
    * @param {string} text - Main message text
    * @param {Array<{ id: string, text: string }>} buttons - Button list
@@ -180,25 +172,20 @@ class WhatsAppDirectService {
       const cleanPhone = to.replace(/@s\.whatsapp\.net|@c\.us/g, '').replace(/\D/g, '');
       const jid = `${cleanPhone}@s.whatsapp.net`;
 
-      let fullMessage = text;
+      let messageBody = text;
 
       if (buttons && buttons.length > 0) {
-        const buttonList = buttons.map((b, idx) => `• *${b.text}*`).join('\n');
-        fullMessage += `\n\n━━━━━━━━━━━━━━━\n🔘 *Quick Actions:*\n${buttonList}`;
+        const buttonRows = buttons.map(b => `🔘 *${b.text}*`).join('   ');
+        messageBody += `\n\n━━━━━━━━━━━━━━━\n${buttonRows}`;
       }
 
       if (footer) {
-        fullMessage += `\n\n_${footer}_`;
+        messageBody += `\n_${footer}_`;
       }
 
-      const sentMsg = await this.sock.sendMessage(jid, { text: fullMessage });
-      if (sentMsg?.key?.id) {
-        this.sentMessageIds.add(sentMsg.key.id);
-      }
-      logger.info(`📤 Sent interactive message to ${cleanPhone}`);
-      return true;
+      return await this.sendTextMessage(jid, messageBody);
     } catch (error) {
-      logger.error(`Error sending message to ${to}:`, error.message);
+      logger.error(`Error sending button message to ${to}:`, error.message);
       return false;
     }
   }
