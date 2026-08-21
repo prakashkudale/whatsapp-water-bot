@@ -10,7 +10,7 @@ async function testFullFlow() {
   await mongoose.connect(process.env.MONGODB_URI, { dbName: 'water-reminder-bot' });
   console.log('Connected!');
 
-  const testPhone = '919876543210';
+  const testPhone = '919638767233';
   
   // Clean up any previous test data
   await User.deleteOne({ phoneNumber: testPhone });
