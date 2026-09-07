@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const logger = require('../utils/logger');
 const userService = require('./userService');
+const User = require('../models/User');
 
 class WhatsAppDirectService {
   constructor() {
@@ -74,7 +75,7 @@ class WhatsAppDirectService {
           this.isConnected = true;
           logger.info('🎉 WhatsApp successfully linked and connected!');
           console.log('\n======================================================');
-          console.log('✅ WhatsApp Linked! Send "setup" from WhatsApp to start.');
+          console.log('✅ WhatsApp Linked! Send "/setup" to subscribe & start.');
           console.log('======================================================\n');
         }
       });
@@ -92,20 +93,21 @@ class WhatsAppDirectService {
 
             const msgId = msg.key?.id;
 
-            // Check if this message was sent by the bot itself
+            // Check if this message was sent by the bot's own outbound code
             if (msgId && this.sentMessageIds.has(msgId)) {
-              continue; // Skip bot's own outbound replies
+              continue; // Skip bot's own programmatic replies
             }
 
-            // Extract clean phone number
-            let senderPhone = remoteJid.replace(/@s\.whatsapp\.net|@c\.us/g, '').replace(/\D/g, '');
+            // Extract clean phone number / user ID by removing device index (:1) and domain
+            const jidUserPart = remoteJid.split('@')[0].split(':')[0];
+            let senderPhone = jidUserPart.replace(/\D/g, '');
             if (!senderPhone && this.sock?.user?.id) {
-              senderPhone = this.sock.user.id.split(':')[0].replace(/\D/g, '');
+              senderPhone = this.sock.user.id.split(':')[0].split('@')[0].replace(/\D/g, '');
             }
 
             const pushName = msg.pushName || '';
 
-            // Extract message body text from all possible message and button formats
+            // Extract message body text from all possible message formats
             let text = 
               msg.message.buttonsResponseMessage?.selectedButtonId ||
               msg.message.buttonsResponseMessage?.selectedDisplayText ||
@@ -129,23 +131,56 @@ class WhatsAppDirectService {
 
             if (!text || !String(text).trim()) continue;
 
-            logger.info(`📥 Received message from ${senderPhone} (${pushName || 'User'}): "${text}"`);
-
-            // Route through user service
-            const reply = await userService.processIncomingMessage(senderPhone, text, pushName);
+            // Route through user service with remoteJid for JID persistence
+            const reply = await userService.processIncomingMessage(senderPhone, text, pushName, remoteJid);
 
             if (reply) {
+              logger.info(`📥 Command from ${senderPhone}: "${text}"`);
               if (typeof reply === 'object' && reply.buttons && reply.buttons.length > 0) {
                 await this.sendButtonMessage(remoteJid, reply.text, reply.buttons, reply.footer);
               } else {
                 const replyText = typeof reply === 'string' ? reply : reply.text;
                 await this.sendTextMessage(remoteJid, replyText);
               }
-              logger.info(`📤 Replied to ${senderPhone}`);
+              logger.info(`📤 Sent reply to ${remoteJid}`);
             }
           }
         } catch (msgErr) {
-          logger.error('Error processing WhatsApp direct message:', msgErr.message);
+          logger.error('Error processing WhatsApp message:', msgErr.message);
+        }
+      });
+
+      // Handle Read Receipts (Blue Ticks / Message Seen events)
+      this.sock.ev.on('message-receipt.update', async (receipts) => {
+        try {
+          for (const receipt of receipts) {
+            const msgId = receipt.key?.id;
+            const remoteJid = receipt.key?.remoteJid;
+            if (!msgId || !remoteJid) continue;
+
+            const isRead = receipt.receiptType === 'read' || receipt.receiptType === 'read-self' || receipt.status === 3;
+            if (isRead) {
+              const jidUser = remoteJid.split('@')[0].split(':')[0];
+              const cleanPhone = jidUser.replace(/\D/g, '');
+
+              const user = await User.findOne({
+                $or: [
+                  { phoneNumber: cleanPhone },
+                  { whatsappJid: remoteJid },
+                  { lastReminderMessageId: msgId }
+                ]
+              });
+
+              if (user && user.lastReminderMessageId === msgId && user.lastReminderStatus !== 'REPLIED') {
+                user.lastReminderStatus = 'SEEN';
+                user.lastReminderSeenAt = new Date();
+                await user.save();
+                logger.info(`👀 User ${user.phoneNumber} opened and viewed water reminder at ${new Date().toLocaleTimeString()} (Blue Tick ✓✓)`);
+              }
+            }
+          }
+        } catch (rErr) {
+          logger.error('Error handling message receipt:', rErr.message);
         }
       });
 
@@ -156,65 +191,67 @@ class WhatsAppDirectService {
 
   /**
    * Send interactive action menu message to a WhatsApp user
-   * @param {string} to - Recipient phone number or JID
+   * @param {string} to - Recipient JID or phone number
    * @param {string} text - Main message text
    * @param {Array<{ id: string, text: string }>} buttons - Button list
    * @param {string} [footer=''] - Optional footer text
-   * @returns {Promise<boolean>}
+   * @returns {Promise<object>}
    */
   async sendButtonMessage(to, text, buttons = [], footer = '') {
-    if (!this.sock || !this.isConnected) {
-      logger.warn(`Cannot send button message to ${to}: WhatsApp is not connected yet.`);
-      return false;
+    let messageBody = text;
+
+    if (buttons && buttons.length > 0) {
+      const buttonRows = buttons.map(b => `🔘 *${b.text}*`).join('   ');
+      messageBody += `\n\n━━━━━━━━━━━━━━━\n${buttonRows}`;
     }
 
-    try {
-      const cleanPhone = to.replace(/@s\.whatsapp\.net|@c\.us/g, '').replace(/\D/g, '');
-      const jid = `${cleanPhone}@s.whatsapp.net`;
-
-      let messageBody = text;
-
-      if (buttons && buttons.length > 0) {
-        const buttonRows = buttons.map(b => `🔘 *${b.text}*`).join('   ');
-        messageBody += `\n\n━━━━━━━━━━━━━━━\n${buttonRows}`;
-      }
-
-      if (footer) {
-        messageBody += `\n_${footer}_`;
-      }
-
-      return await this.sendTextMessage(jid, messageBody);
-    } catch (error) {
-      logger.error(`Error sending button message to ${to}:`, error.message);
-      return false;
+    if (footer) {
+      messageBody += `\n_${footer}_`;
     }
+
+    return await this.sendTextMessage(to, messageBody);
   }
 
   /**
-   * Send a WhatsApp text message to a phone number
-   * @param {string} to - Recipient phone number (e.g. 919876543210)
+   * Send a WhatsApp text message to a phone number or JID
+   * @param {string} to - Recipient phone number or JID
    * @param {string} text - Message text
-   * @returns {Promise<boolean>}
+   * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
    */
   async sendTextMessage(to, text) {
     if (!this.sock || !this.isConnected) {
       logger.warn(`Cannot send message to ${to}: WhatsApp is not connected yet.`);
-      return false;
+      return { success: false, error: 'WhatsApp not connected' };
+    }
+
+    // Security Gate: Validate recipient authorization and rate limits
+    const securityService = require('./securityService');
+    const secCheck = await securityService.validateOutboundMessage(to);
+    if (!secCheck.allowed) {
+      logger.warn(`[SECURITY INTERCEPT] Blocked message to ${to}: ${secCheck.reason}`);
+      return { success: false, error: secCheck.reason };
     }
 
     try {
-      const cleanPhone = to.replace(/@s\.whatsapp\.net|@c\.us/g, '').replace(/\D/g, '');
-      const jid = `${cleanPhone}@s.whatsapp.net`;
+      let jid = String(to || '').trim();
+      if (!jid.includes('@')) {
+        let cleanPhone = jid.replace(/\D/g, '');
+        // Auto-prepend default country code '91' for 10-digit numbers
+        if (cleanPhone.length === 10 && /^[6-9]/.test(cleanPhone)) {
+          cleanPhone = `91${cleanPhone}`;
+        }
+        jid = `${cleanPhone}@s.whatsapp.net`;
+      }
 
       const sentMsg = await this.sock.sendMessage(jid, { text });
-      if (sentMsg?.key?.id) {
-        this.sentMessageIds.add(sentMsg.key.id);
+      const msgId = sentMsg?.key?.id;
+      if (msgId) {
+        this.sentMessageIds.add(msgId);
       }
-      logger.info(`📤 Sent direct message to ${cleanPhone}`);
-      return true;
+      return { success: true, messageId: msgId };
     } catch (error) {
       logger.error(`Error sending direct WhatsApp message to ${to}:`, error.message);
-      return false;
+      return { success: false, error: error.message };
     }
   }
 }

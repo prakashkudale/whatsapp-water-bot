@@ -9,14 +9,32 @@ const userSchema = new mongoose.Schema(
       trim: true,
       index: true
     },
+    whatsappJid: {
+      type: String,
+      default: null,
+      trim: true
+    },
     name: {
       type: String,
       default: '',
       trim: true
     },
+    isSubscribed: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
+    consentGiven: {
+      type: Boolean,
+      default: false
+    },
+    consentDate: {
+      type: Date,
+      default: null
+    },
     dailyGoal: {
       type: Number,
-      default: 2500, // in ml
+      default: 2000, // in ml
       min: 100,
       max: 20000
     },
@@ -46,7 +64,7 @@ const userSchema = new mongoose.Schema(
     },
     reminderInterval: {
       type: Number,
-      default: 2, // in hours
+      default: 1, // in hours
       min: 1,
       max: 12
     },
@@ -64,11 +82,42 @@ const userSchema = new mongoose.Schema(
     },
     setupStep: {
       type: String,
-      enum: ['NONE', 'AWAITING_GOAL', 'AWAITING_WAKEUP', 'AWAITING_SLEEP', 'AWAITING_INTERVAL', 'AWAITING_RESET_CONFIRM'],
+      enum: ['NONE', 'AWAITING_CONSENT', 'AWAITING_GOAL', 'AWAITING_WAKEUP', 'AWAITING_SLEEP', 'AWAITING_INTERVAL', 'AWAITING_RESET_CONFIRM'],
       default: 'NONE'
+    },
+    // Smart Read Receipt & Reminder Tracking
+    lastReminderMessageId: {
+      type: String,
+      default: null
     },
     lastReminderSentAt: {
       type: Date,
+      default: null
+    },
+    lastReminderSeenAt: {
+      type: Date,
+      default: null
+    },
+    lastReminderStatus: {
+      type: String,
+      enum: ['NONE', 'SENT', 'SEEN', 'REPLIED'],
+      default: 'NONE'
+    },
+    nudgeSentForCurrentReminder: {
+      type: Boolean,
+      default: false
+    },
+    lastDrinkTime: {
+      type: Date,
+      default: null
+    },
+    // Daily Morning Kickoff & Bedtime Recap Tracking
+    lastMorningKickoffDate: {
+      type: String, // 'YYYY-MM-DD'
+      default: null
+    },
+    lastEveningRecapDate: {
+      type: String, // 'YYYY-MM-DD'
       default: null
     }
   },

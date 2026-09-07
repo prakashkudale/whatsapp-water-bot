@@ -34,12 +34,14 @@ class WaterService {
   }
 
   /**
-   * Record water intake
+   * Record water intake (from proactive drinking or reminder reply)
+   * Automatically updates next reminder timer so user is not bothered right after drinking!
    * @param {object} user - User document
    * @param {number} amount - Amount in ml (positive integer)
+   * @param {string} [containerLabel=''] - e.g. "1 glass", "2 bottles"
    * @returns {Promise<{ message: string, log: object }>}
    */
-  async addWaterIntake(user, amount) {
+  async addWaterIntake(user, amount, containerLabel = '') {
     const log = await this.getOrCreateTodayLog(user);
 
     const wasCompletedBefore = log.goalCompleted;
@@ -57,10 +59,50 @@ class WaterService {
     }
 
     await log.save();
-    logger.info(`User ${user.phoneNumber} logged ${amount}ml water. Total today: ${log.totalConsumed}/${log.goal}ml`);
 
-    const replyText = formatWaterAddedResponse(amount, log.goal, log.totalConsumed, justCompletedGoal);
+    // Smart Proactive Drinking Optimization:
+    // When user drinks water, reset reminder timer to start from NOW + interval
+    // and mark status as REPLIED so any pending nudge is cancelled!
+    const now = new Date();
+    user.lastDrinkTime = now;
+    user.lastReminderSentAt = now;
+    user.lastReminderStatus = 'REPLIED';
+    user.nudgeSentForCurrentReminder = false;
+    await user.save();
+
+    logger.info(`User ${user.phoneNumber} logged ${amount}ml water (${containerLabel || 'direct'}). Next reminder timer reset.`);
+
+    const replyText = formatWaterAddedResponse(amount, log.goal, log.totalConsumed, justCompletedGoal, containerLabel);
     return { message: replyText, log, justCompletedGoal };
+  }
+
+  /**
+   * Undo the last logged drink entry
+   * @param {object} user - User document
+   * @returns {Promise<string>}
+   */
+  async undoLastIntake(user) {
+    const log = await this.getOrCreateTodayLog(user);
+    if (!log.entries || log.entries.length === 0) {
+      return `ℹ️ Aaj koi drink log nahi hua hai jise undo kiya ja sake.`;
+    }
+
+    const lastEntry = log.entries.pop();
+    log.totalConsumed = Math.max(0, log.totalConsumed - lastEntry.amount);
+    if (log.totalConsumed < log.goal) {
+      log.goalCompleted = false;
+      log.goalCompletedAt = null;
+    }
+    await log.save();
+
+    const percentage = log.goal > 0 ? Math.round((log.totalConsumed / log.goal) * 100) : 0;
+    const remaining = Math.max(0, log.goal - log.totalConsumed);
+
+    return (
+      `↩️ *Koi baat nahi! Last entry (${lastEntry.amount} ml) hata di gayi hai.*\n\n` +
+      `Updated Total: *${log.totalConsumed} / ${log.goal} ml* (${percentage}%)\n` +
+      `Remaining: *${remaining} ml*`
+    );
   }
 
   /**
@@ -87,7 +129,7 @@ class WaterService {
     await log.save();
 
     logger.info(`User ${user.phoneNumber} reset today's water intake`);
-    return `🔄 Today's water intake has been reset to 0 ml.\n\nDaily goal: ${log.goal} ml.\nStay hydrated! 💧`;
+    return `🔄 *Aaj ka water intake 0 ml reset ho gaya hai!*\n\nDaily target: ${log.goal} ml.\nChalo naye sire se shuruat karte hain! 💧`;
   }
 }
 

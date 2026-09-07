@@ -51,7 +51,12 @@ class WhatsAppService {
     if (this.provider === 'direct') {
       const whatsappDirectService = require('./whatsappDirectService');
       const sent = await whatsappDirectService.sendButtonMessage(recipient, text, buttons, footer);
-      return { success: sent, provider: 'direct' };
+      return {
+        success: Boolean(sent?.success),
+        messageId: sent?.messageId || null,
+        error: sent?.error || null,
+        provider: 'direct'
+      };
     } else {
       // For OpenWA or Meta fallback, send formatted text menu
       const menuText = text + '\n\n' + buttons.map(b => `👉 *${b.text}*`).join('\n');
@@ -73,9 +78,12 @@ class WhatsAppService {
       throw new Error('Recipient phone number is required');
     }
 
-    if (!text || !text.trim()) {
-      logger.error('WhatsApp sendTextMessage failed: Message text is empty');
-      throw new Error('Message text cannot be empty');
+    // Security Gate: Validate recipient authorization and rate limits
+    const securityService = require('./securityService');
+    const secCheck = await securityService.validateOutboundMessage(recipient);
+    if (!secCheck.allowed) {
+      logger.warn(`[SECURITY INTERCEPT] Outbound message blocked to ${recipient}: ${secCheck.reason}`);
+      return { success: false, error: secCheck.reason };
     }
 
     logger.info(`Sending WhatsApp message [Provider: ${this.provider}] to ${recipient}: ${text.substring(0, 50)}...`);
@@ -83,7 +91,12 @@ class WhatsAppService {
     if (this.provider === 'direct') {
       const whatsappDirectService = require('./whatsappDirectService');
       const sent = await whatsappDirectService.sendTextMessage(recipient, text);
-      return { success: sent, provider: 'direct' };
+      return {
+        success: Boolean(sent?.success),
+        messageId: sent?.messageId || null,
+        error: sent?.error || null,
+        provider: 'direct'
+      };
     } else if (this.provider === 'meta') {
       return this._sendViaMetaCloudApi(recipient, text);
     } else if (this.provider === 'openwa') {

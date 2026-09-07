@@ -21,14 +21,16 @@ const connectDB = async () => {
     logger.info(`MongoDB connected: ${conn.connection.host} (DB: ${conn.connection.name})`);
   } catch (error) {
     logger.error(`MongoDB connection error: ${error.message}`);
-    // In local development without MongoDB installed/running, we don't immediately crash the whole server
-    // but log the error clearly so health checks show status.
   }
 };
 
 // Mongoose connection event listeners
 mongoose.connection.on('disconnected', () => {
   logger.warn('MongoDB connection lost. Reconnecting...');
+  try {
+    const securityService = require('../services/securityService');
+    securityService.notifyOwner('⚠️ MongoDB Connection Lost', 'The database connection was dropped. Automatic reconnection is in progress.').catch(() => {});
+  } catch (e) {}
 });
 
 mongoose.connection.on('error', (err) => {

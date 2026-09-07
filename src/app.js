@@ -1,6 +1,8 @@
 const express = require('express');
+const path = require('path');
 const healthRoutes = require('./routes/healthRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
+const simulationRoutes = require('./routes/simulationRoutes');
 const logger = require('./utils/logger');
 
 const app = express();
@@ -8,6 +10,9 @@ const app = express();
 // Parse incoming JSON and url-encoded payloads
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static frontend files for the Interactive Simulator
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -18,16 +23,14 @@ app.use((req, res, next) => {
 // Routes
 app.use('/', healthRoutes);
 app.use('/', webhookRoutes);
+app.use('/', simulationRoutes);
 
-// Root route welcome/health pointer
-app.get('/', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Welcome to WhatsApp Water Reminder Bot API. Check /health for status.'
-  });
+// Explicit route for simulator
+app.get('/simulator', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
-// 404 Handler for undefined routes
+// 404 Handler for undefined API routes
 app.use((req, res) => {
   res.status(404).json({
     success: false,

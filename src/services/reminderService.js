@@ -2,116 +2,123 @@ const User = require('../models/User');
 const WaterLog = require('../models/WaterLog');
 const waterService = require('./waterService');
 const whatsappService = require('./whatsappService');
-const { getCurrentTimeInTimezone, isTimeWithinWakeWindow } = require('../utils/timeUtils');
+const {
+  getCurrentDateString,
+  getPreviousDateString,
+  getCurrentTimeInTimezone,
+  isTimeWithinWakeWindow
+} = require('../utils/timeUtils');
+const hinglish = require('../utils/hinglishTemplates');
 const logger = require('../utils/logger');
 
 class ReminderService {
   /**
-   * Determine the appropriate adaptive reminder message based on progress and active day time
+   * Generate energizing Good Morning kickoff message in Funny Hinglish
+   * @param {object} user
+   * @param {object|null} yesterdayLog
+   * @returns {string}
+   */
+  generateMorningKickoffText(user, yesterdayLog) {
+    return hinglish.getMorningKickoffMessage(user, yesterdayLog);
+  }
+
+  /**
+   * Generate end-of-day final recap before bedtime in Funny Hinglish
+   * @param {object} user
+   * @param {object} todayLog
+   * @returns {string}
+   */
+  generateBedtimeRecapText(user, todayLog) {
+    return hinglish.getBedtimeRecapMessage(user, todayLog);
+  }
+
+  /**
+   * Determine the appropriate adaptive reminder message in Funny Hinglish
    * @param {number} goal - Daily goal in ml
    * @param {number} totalConsumed - Current consumed in ml
    * @param {object} user - User document
    * @returns {string} Adaptive reminder text
    */
   generateAdaptiveReminderText(goal, totalConsumed, user) {
-    const remaining = Math.max(0, goal - totalConsumed);
-
-    // If close to completing goal (less than 35% or <= 800ml remaining)
-    if (remaining > 0 && remaining <= 800 && totalConsumed > 0) {
-      return (
-        `💧 *You're almost there!*\n\n` +
-        `${totalConsumed} / ${goal} ml\n` +
-        `Only ${remaining} ml remaining.`
-      );
-    }
-
-    // Calculate expected consumption based on time elapsed during active hours
-    const current = getCurrentTimeInTimezone(user.timezone);
-    const wakeTotal = (user.wakeUpHour ?? 8) * 60 + (user.wakeUpMinute ?? 0);
-    const sleepTotal = (user.sleepHour ?? 23) * 60 + (user.sleepMinute ?? 0);
-
-    const activeDayLengthMinutes = Math.max(60, sleepTotal > wakeTotal ? sleepTotal - wakeTotal : (1440 - wakeTotal) + sleepTotal);
-    let elapsedActiveMinutes = current.totalMinutes >= wakeTotal 
-      ? current.totalMinutes - wakeTotal 
-      : (1440 - wakeTotal) + current.totalMinutes;
-
-    const expectedFraction = Math.min(1, Math.max(0, elapsedActiveMinutes / activeDayLengthMinutes));
-    const expectedConsumed = Math.round(goal * expectedFraction);
-
-    // If behind expected progress by at least 300 ml
-    if (totalConsumed < expectedConsumed - 300) {
-      return (
-        `💧 *You're a little behind today's goal.*\n\n` +
-        `You've had ${totalConsumed} / ${goal} ml.\n\n` +
-        `Try drinking some water now.`
-      );
-    }
-
-    // On track default message
-    return (
-      `💧 *Time for some water!*\n\n` +
-      `You've had ${totalConsumed} / ${goal} ml today.`
-    );
+    return hinglish.getAdaptiveReminderMessage(goal, totalConsumed, user);
   }
 
   /**
-   * Check all eligible users and send due reminders
+   * Check all eligible users and execute scheduled reminders, morning kickoffs, and bedtime recaps
+   */
+  /**
+   * Check all eligible users and execute scheduled reminders, morning kickoffs, and bedtime recaps
    */
   async checkAndSendReminders() {
     try {
-      // Find all configured users with active reminders
+      // 1. Run Morning Kickoffs (fires at wake-up time)
+      await this.checkMorningKickoffs();
+
+      // 2. Run Bedtime Recaps (fires 1h before bedtime if goal not finished)
+      await this.checkBedtimeRecaps();
+
+      // 3. Run Gentle Nudge Check for users who saw message > 25 mins ago but forgot to drink
+      await this.checkAndSendNudges();
+
+      // 4. Find all active configured users
       const activeUsers = await User.find({
-        setupCompleted: true,
-        remindersEnabled: true
+        isSubscribed: true,
+        remindersEnabled: true,
+        $or: [{ setupCompleted: true }, { setupStep: 'NONE' }]
       });
 
-      if (activeUsers.length === 0) {
-        return;
-      }
+      if (activeUsers.length === 0) return;
 
       const now = new Date();
 
       for (const user of activeUsers) {
         try {
-          // 1. Check wake-up/sleep active window
-          if (!isTimeWithinWakeWindow(user, user.timezone)) {
-            logger.debug(`User ${user.phoneNumber} is outside wake window. Skipping reminder.`);
+          // Skip the bot's own hosting number so it does not remind itself
+          if (user.phoneNumber === '919978241539' || user.phoneNumber === '9978241539') {
             continue;
           }
 
-          // 2. Check today's water log and goal completion
+          if (!isTimeWithinWakeWindow(user, user.timezone)) {
+            logger.debug(`Skipping ${user.phoneNumber}: Outside active window (${user.wakeUpTime} to ${user.sleepTime})`);
+            continue;
+          }
+
           const todayLog = await waterService.getOrCreateTodayLog(user);
           if (todayLog.goalCompleted || todayLog.totalConsumed >= todayLog.goal) {
-            logger.debug(`User ${user.phoneNumber} already completed daily goal. Skipping reminder.`);
+            logger.debug(`Skipping ${user.phoneNumber}: Goal completed (${todayLog.totalConsumed}/${todayLog.goal} ml)`);
             continue;
           }
 
-          // 3. Check interval timing
-          const intervalHours = user.reminderInterval || 2;
+          // Check interval timing
+          const intervalHours = user.reminderInterval || 1;
           const intervalMs = intervalHours * 60 * 60 * 1000;
 
           if (user.lastReminderSentAt) {
             const timeSinceLastReminder = now.getTime() - new Date(user.lastReminderSentAt).getTime();
             if (timeSinceLastReminder < intervalMs) {
-              // Not yet due
+              const remainingMinutes = Math.round((intervalMs - timeSinceLastReminder) / 60000);
+              logger.debug(`Skipping ${user.phoneNumber}: Next reminder in ${remainingMinutes} mins`);
               continue;
             }
           }
 
-          // 4. Generate adaptive reminder message
           const messageText = this.generateAdaptiveReminderText(todayLog.goal, todayLog.totalConsumed, user);
-          const reminderButtons = [
-            { id: 'quick_250', text: '+250 ml 💧' },
-            { id: 'quick_500', text: '+500 ml 🥤' },
-            { id: 'btn_progress', text: 'Progress 📊' }
-          ];
+          const destination = user.whatsappJid || user.phoneNumber;
 
           logger.info(`⏰ Sending scheduled reminder to ${user.phoneNumber}`);
-          await whatsappService.sendButtonMessage(user.phoneNumber, messageText, reminderButtons, 'Tap a button to log instantly');
+          const sendResult = await whatsappService.sendTextMessage(destination, messageText);
 
-          // 5. Update lastReminderSentAt to prevent duplicates
-          user.lastReminderSentAt = now;
-          await user.save();
+          if (sendResult && sendResult.success) {
+            user.lastReminderSentAt = now;
+            user.lastReminderMessageId = sendResult.messageId || null;
+            user.lastReminderStatus = 'SENT';
+            user.nudgeSentForCurrentReminder = false;
+            user.lastReminderSeenAt = null;
+            await user.save();
+            logger.info(`✅ Scheduled reminder delivered to ${user.phoneNumber}`);
+          } else {
+            logger.error(`❌ Failed to send reminder to ${user.phoneNumber}: ${sendResult?.error || 'Send error'}`);
+          }
 
         } catch (userErr) {
           logger.error(`Error processing reminder for user ${user.phoneNumber}:`, userErr.message);
@@ -119,6 +126,134 @@ class ReminderService {
       }
     } catch (err) {
       logger.error('Error during checkAndSendReminders run:', err.message);
+    }
+  }
+
+  /**
+   * Check and send Good Morning Kickoff messages with Hinglish history motivation
+   */
+  async checkMorningKickoffs() {
+    try {
+      const activeUsers = await User.find({
+        isSubscribed: true,
+        remindersEnabled: true,
+        $or: [{ setupCompleted: true }, { setupStep: 'NONE' }]
+      });
+
+      for (const user of activeUsers) {
+        const todayDate = getCurrentDateString(user.timezone);
+        if (user.lastMorningKickoffDate === todayDate) continue;
+
+        const current = getCurrentTimeInTimezone(user.timezone);
+        const wakeTotal = (user.wakeUpHour ?? 8) * 60 + (user.wakeUpMinute ?? 0);
+
+        // Check if within 45 mins of wake-up time
+        if (current.totalMinutes >= wakeTotal && current.totalMinutes <= wakeTotal + 45) {
+          const yesterdayDate = getPreviousDateString(user.timezone);
+          const yesterdayLog = await WaterLog.findOne({ userId: user._id, date: yesterdayDate });
+
+          const kickoffMsg = this.generateMorningKickoffText(user, yesterdayLog);
+          const destination = user.whatsappJid || user.phoneNumber;
+
+          logger.info(`🌅 Sending Good Morning Kickoff to ${user.phoneNumber}`);
+          const sendResult = await whatsappService.sendTextMessage(destination, kickoffMsg);
+
+          if (sendResult && sendResult.success) {
+            user.lastMorningKickoffDate = todayDate;
+            user.lastReminderSentAt = new Date();
+            user.lastReminderStatus = 'SENT';
+            await user.save();
+          }
+        }
+      }
+    } catch (err) {
+      logger.error('Error during checkMorningKickoffs:', err.message);
+    }
+  }
+
+  /**
+   * Check and send Bedtime Final Recap messages
+   */
+  async checkBedtimeRecaps() {
+    try {
+      const activeUsers = await User.find({
+        isSubscribed: true,
+        remindersEnabled: true,
+        $or: [{ setupCompleted: true }, { setupStep: 'NONE' }]
+      });
+
+      for (const user of activeUsers) {
+        const todayDate = getCurrentDateString(user.timezone);
+        if (user.lastEveningRecapDate === todayDate) continue;
+
+        const current = getCurrentTimeInTimezone(user.timezone);
+        const sleepTotal = (user.sleepHour ?? 23) * 60 + (user.sleepMinute ?? 0);
+
+        // Check if within 60 mins before sleep time
+        let diffToSleep = sleepTotal - current.totalMinutes;
+        if (sleepTotal < (user.wakeUpHour ?? 8) * 60 && current.totalMinutes > sleepTotal) {
+          // Sleep past midnight
+          diffToSleep = (1440 - current.totalMinutes) + sleepTotal;
+        }
+
+        if (diffToSleep >= 0 && diffToSleep <= 60) {
+          const todayLog = await waterService.getOrCreateTodayLog(user);
+          const recapMsg = this.generateBedtimeRecapText(user, todayLog);
+          const destination = user.whatsappJid || user.phoneNumber;
+
+          logger.info(`🌙 Sending Bedtime Recap to ${user.phoneNumber}`);
+          const sendResult = await whatsappService.sendTextMessage(destination, recapMsg);
+
+          if (sendResult && sendResult.success) {
+            user.lastEveningRecapDate = todayDate;
+            await user.save();
+          }
+        }
+      }
+    } catch (err) {
+      logger.error('Error during checkBedtimeRecaps:', err.message);
+    }
+  }
+
+  /**
+   * Check for users who SAW the reminder > 25 minutes ago but haven't replied/logged water
+   */
+  async checkAndSendNudges() {
+    try {
+      const now = new Date();
+      const twentyFiveMinsAgo = new Date(now.getTime() - 25 * 60 * 1000);
+
+      const seenUsers = await User.find({
+        isSubscribed: true,
+        remindersEnabled: true,
+        lastReminderStatus: 'SEEN',
+        nudgeSentForCurrentReminder: false,
+        lastReminderSeenAt: { $lte: twentyFiveMinsAgo }
+      });
+
+      for (const user of seenUsers) {
+        try {
+          if (!isTimeWithinWakeWindow(user, user.timezone)) continue;
+
+          const todayLog = await waterService.getOrCreateTodayLog(user);
+          if (todayLog.goalCompleted || todayLog.totalConsumed >= todayLog.goal) continue;
+
+          const nudgeText = hinglish.getGentleNudgeMessage();
+
+          const destination = user.whatsappJid || user.phoneNumber;
+          logger.info(`🔔 Sending 1 gentle nudge to ${user.phoneNumber} (seen message > 25m ago without logging)`);
+          const sendResult = await whatsappService.sendTextMessage(destination, nudgeText);
+
+          if (sendResult && sendResult.success) {
+            user.nudgeSentForCurrentReminder = true;
+            await user.save();
+          }
+        } catch (nudgeErr) {
+          logger.error(`Error sending nudge to ${user.phoneNumber}:`, nudgeErr.message);
+        }
+      }
+    } catch (err) {
+      logger.error('Error during checkAndSendNudges:', err.message);
     }
   }
 }

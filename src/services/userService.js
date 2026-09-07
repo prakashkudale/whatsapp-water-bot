@@ -1,276 +1,337 @@
 const User = require('../models/User');
 const { parseTimeString } = require('../utils/timeUtils');
+const { parseContainerAmount } = require('../utils/progressUtils');
 const waterService = require('./waterService');
 const logger = require('../utils/logger');
 
 class UserService {
   /**
-   * Find or create user by phone number
+   * Find or create user by phone number or ID
    * @param {string} phoneNumber
    * @param {string} [name='']
    * @returns {Promise<object>} User document
    */
-  async getOrCreateUser(phoneNumber, name = '') {
-    let user = await User.findOne({ phoneNumber });
+  /**
+   * Find or create user by phone number or ID
+   * @param {string} phoneNumber
+   * @param {string} [name='']
+   * @param {string} [whatsappJid=null]
+   * @returns {Promise<object>} User document
+   */
+  async getOrCreateUser(phoneNumber, name = '', whatsappJid = null) {
+    const cleanPhone = String(phoneNumber || '').replace(/[^\w]/g, '').slice(0, 30);
+    if (!cleanPhone) throw new Error('Invalid phone number provided');
+
+    let user = await User.findOne({
+      $or: [
+        { phoneNumber: cleanPhone },
+        ...(whatsappJid ? [{ whatsappJid }] : [])
+      ]
+    });
 
     if (!user) {
       user = await User.create({
-        phoneNumber,
-        name: name || '',
-        dailyGoal: 2500,
-        wakeUpTime: '8:00 AM',
-        wakeUpHour: 8,
+        phoneNumber: cleanPhone,
+        whatsappJid: whatsappJid || null,
+        name: String(name || '').slice(0, 100).trim(),
+        isSubscribed: false,
+        consentGiven: false,
+        dailyGoal: 2000,
+        wakeUpTime: '9:00 AM',
+        wakeUpHour: 9,
         wakeUpMinute: 0,
         sleepTime: '11:00 PM',
         sleepHour: 23,
         sleepMinute: 0,
-        reminderInterval: 2,
+        reminderInterval: 1,
         timezone: process.env.TIMEZONE || 'Asia/Kolkata',
         setupCompleted: false,
-        setupStep: 'NONE'
+        setupStep: 'NONE',
+        remindersEnabled: true
       });
-      logger.info(`Registered new user with phone number: ${phoneNumber}`);
-    } else if (name && !user.name) {
-      user.name = name;
-      await user.save();
+      logger.info(`Registered user entry for: ${cleanPhone}`);
+    } else {
+      let modified = false;
+      if (name && !user.name) {
+        user.name = String(name).slice(0, 100).trim();
+        modified = true;
+      }
+      if (whatsappJid && user.whatsappJid !== whatsappJid) {
+        user.whatsappJid = whatsappJid;
+        modified = true;
+      }
+      if (modified) await user.save();
     }
 
     return user;
   }
 
   /**
-   * Main message router handling commands, setup conversation steps, button actions, and water logging
+   * Main message router handling commands, consent flow, setup steps, inline adjustments, and water logging
    * @param {string} phoneNumber
    * @param {string} text
    * @param {string} [userName='']
-   * @returns {Promise<object|string>} Bot reply message structure
+   * @param {string} [whatsappJid=null]
+   * @returns {Promise<string|null>} Bot reply message, or null to ignore silently
    */
-  async processIncomingMessage(phoneNumber, text, userName = '') {
-    const user = await this.getOrCreateUser(phoneNumber, userName);
-    const input = String(text || '').trim();
-    const lowerInput = input.toLowerCase();
+  async processIncomingMessage(phoneNumber, text, userName = '', whatsappJid = null) {
+    const cleanPhone = String(phoneNumber || '').replace(/[^\w]/g, '').slice(0, 30);
+    if (!cleanPhone) return null;
 
-    // 0. Interactive Button ID Translations
-    let normalized = lowerInput;
-    if (lowerInput === 'quick_250' || lowerInput === '+250 ml 💧' || lowerInput === '+250 ml' || lowerInput === '+250ml') {
-      normalized = '250';
-    } else if (lowerInput === 'quick_500' || lowerInput === '+500 ml 🥤' || lowerInput === '+500 ml' || lowerInput === '+500ml') {
-      normalized = '500';
-    } else if (lowerInput === 'btn_progress' || lowerInput === 'progress 📊') {
-      normalized = 'progress';
-    } else if (lowerInput === 'btn_status' || lowerInput === 'status 📊') {
-      normalized = 'status';
-    } else if (lowerInput === 'btn_help' || lowerInput === 'help ❓') {
-      normalized = 'help';
-    } else if (lowerInput === 'interval_1' || lowerInput === 'every 1 hour' || lowerInput === '1 hour') {
-      normalized = '1';
-    } else if (lowerInput === 'interval_2' || lowerInput === 'every 2 hours' || lowerInput === '2 hours') {
-      normalized = '2';
-    } else if (lowerInput === 'interval_3' || lowerInput === 'every 3 hours' || lowerInput === '3 hours') {
-      normalized = '3';
-    } else if (lowerInput === 'reset_confirm' || lowerInput === 'yes, reset 🔄' || lowerInput === 'yes, reset') {
-      normalized = 'yes';
-    } else if (lowerInput === 'reset_cancel' || lowerInput === 'cancel ❌' || lowerInput === 'cancel') {
-      normalized = 'no';
+    const input = String(text || '').slice(0, 500).trim();
+    // Normalize commands (support /setup, setup, /stup, /progress, progress, etc.)
+    const cleanCmd = input.startsWith('/') ? input.substring(1).trim() : input;
+    const lowerInput = cleanCmd.toLowerCase();
+
+    // Find user in database by phone or whatsappJid
+    let user = await User.findOne({
+      $or: [
+        { phoneNumber: cleanPhone },
+        ...(whatsappJid ? [{ whatsappJid }] : [])
+      ]
+    });
+
+    if (user && whatsappJid && user.whatsappJid !== whatsappJid) {
+      user.whatsappJid = whatsappJid;
+      await user.save();
     }
 
-    // 1. Reset confirmation handling
-    if (user.setupStep === 'AWAITING_RESET_CONFIRM') {
-      if (normalized === 'yes' || normalized === 'y') {
-        user.setupStep = 'NONE';
-        await user.save();
-        const resetMsg = await waterService.resetTodayIntake(user);
-        return {
-          text: resetMsg,
-          buttons: [
-            { id: 'quick_250', text: '+250 ml 💧' },
-            { id: 'quick_500', text: '+500 ml 🥤' },
-            { id: 'btn_progress', text: 'Progress 📊' }
-          ]
-        };
-      } else {
-        user.setupStep = 'NONE';
-        await user.save();
-        return {
-          text: '❌ Reset cancelled. Your water intake remains unchanged.',
-          buttons: [
-            { id: 'btn_progress', text: 'Progress 📊' },
-            { id: 'btn_status', text: 'Status ⚙️' }
-          ]
-        };
+    // Check if user is invoking setup/subscription (support common typos like /stup, /settup, etc.)
+    const isSetupCmd = /^(setup|start|water|stup|settup|set up|start water|subscribe|join|hi|hello|hey)$/i.test(lowerInput);
+
+    // If user is not in database or not subscribed and not currently in active setup conversation:
+    if (!user || (!user.isSubscribed && (!user.setupStep || user.setupStep === 'NONE'))) {
+      if (!isSetupCmd) {
+        // Silently ignore casual messages from non-subscribed contacts
+        return null;
       }
     }
 
-    // 2. Global command: "setup" (can restart setup anytime)
-    if (normalized === 'setup') {
-      user.setupStep = 'AWAITING_GOAL';
+    // Ensure user record exists
+    if (!user) {
+      user = await this.getOrCreateUser(phoneNumber, userName, whatsappJid);
+    }
+
+    // 1. Global command: /setup -> Trigger Consent & Introduction
+    if (isSetupCmd) {
+      user.setupStep = 'AWAITING_CONSENT';
+      await user.save();
+      const hinglish = require('../utils/hinglishTemplates');
+      return hinglish.getWelcomeConsentMessage();
+    }
+
+    // 2. Handle Consent Response (YES / NO / Invalid Input)
+    if (user.setupStep === 'AWAITING_CONSENT') {
+      const isAffirmative = /^(yes|y|agree|sure|ok|start|yep|yeah|haan|ha|sahi hai)$/i.test(lowerInput);
+      const isNegative = /^(no|n|cancel|stop|exit|disagree|nope|never|nahi|na)$/i.test(lowerInput);
+      const hinglish = require('../utils/hinglishTemplates');
+
+      if (isAffirmative) {
+        user.isSubscribed = true;
+        user.consentGiven = true;
+        user.consentDate = new Date();
+        user.remindersEnabled = true;
+        user.setupStep = 'AWAITING_GOAL';
+        await user.save();
+
+        return hinglish.getStepGoalMessage();
+      } else if (isNegative) {
+        user.setupStep = 'NONE';
+        user.isSubscribed = false;
+        user.remindersEnabled = false;
+        await user.save();
+
+        return hinglish.getConsentCancelMessage();
+      } else {
+        return hinglish.getInvalidConsentMessage();
+      }
+    }
+
+    // 3. Multi-step setup state machine (Steps 1 to 4 with cancellation and validation)
+    if (user.setupStep && user.setupStep !== 'NONE') {
+      if (lowerInput === 'cancel' || lowerInput === 'exit' || lowerInput === 'stop') {
+        user.setupStep = 'NONE';
+        await user.save();
+        return `❌ *Setup cancel ho gaya.* Naye sire se shuru karne ke liye */setup* bhejo.`;
+      }
+      return await this._handleSetupStep(user, input);
+    }
+
+    // 4. Command: /undo (Undo last drink entry)
+    if (lowerInput === 'undo' || lowerInput === 'remove last') {
+      return await waterService.undoLastIntake(user);
+    }
+
+    // 5. Direct Inline Setting Updates (e.g. "goal 3000", "interval 2", "wake 8:00 AM", "sleep 11:00 PM")
+    const goalChangeMatch = lowerInput.match(/^goal\s+(\d+)\s*(?:ml)?$/i);
+    if (goalChangeMatch) {
+      const newGoal = parseInt(goalChangeMatch[1], 10);
+      if (newGoal >= 500 && newGoal <= 15000) {
+        user.dailyGoal = newGoal;
+        await user.save();
+        const totalGlasses = Math.round(newGoal / 250);
+        return `🎯 *Daily target update ho gaya: ${newGoal} ml* (~${totalGlasses} glasses)!`;
+      } else {
+        return `⚠️ Please 500 se 15000 ml ke beech target choose kijiye (e.g. */goal 2500*).`;
+      }
+    }
+
+    const intervalChangeMatch = lowerInput.match(/^interval\s+(\d+)\s*(?:hours?|hrs?)?$/i);
+    if (intervalChangeMatch) {
+      const newInt = parseInt(intervalChangeMatch[1], 10);
+      if (newInt >= 1 && newInt <= 12) {
+        user.reminderInterval = newInt;
+        await user.save();
+        return `⏰ *Reminder frequency update ho gayi: Har ${newInt} ghante me!*`;
+      } else {
+        return `⚠️ 1 se 12 ghante ke beech frequency choose kijiye (e.g. */interval 2*).`;
+      }
+    }
+
+    const wakeChangeMatch = lowerInput.match(/^wake\s+(.+)$/i);
+    if (wakeChangeMatch) {
+      const parsed = parseTimeString(wakeChangeMatch[1], 'wake');
+      if (parsed.valid) {
+        user.wakeUpTime = parsed.formatted;
+        user.wakeUpHour = parsed.hour24;
+        user.wakeUpMinute = parsed.minute;
+        await user.save();
+        return `🌅 *Uthne ka time update ho gaya: ${parsed.formatted}!*`;
+      } else {
+        return `⚠️ ${parsed.error}\nExample: */wake 8:00 AM*`;
+      }
+    }
+
+    const sleepChangeMatch = lowerInput.match(/^sleep\s+(.+)$/i);
+    if (sleepChangeMatch) {
+      const parsed = parseTimeString(sleepChangeMatch[1], 'sleep');
+      if (parsed.valid) {
+        user.sleepTime = parsed.formatted;
+        user.sleepHour = parsed.hour24;
+        user.sleepMinute = parsed.minute;
+        await user.save();
+        return `🌙 *Sone ka time update ho gaya: ${parsed.formatted}!*`;
+      } else {
+        return `⚠️ ${parsed.error}\nExample: */sleep 11:00 PM*`;
+      }
+    }
+
+    // 6. Command: /reset
+    if (lowerInput === 'reset') {
+      user.setupStep = 'AWAITING_RESET_CONFIRM';
       await user.save();
       return (
-        `💧 *What is your daily water goal?*\n\n` +
-        `Example: 2500 ml (or 2000, 3000)`
+        `⚠️ *Kya aap sach me aaj ka intake reset karna chahte hain?*\n\n` +
+        `👉 Reply *YES* confirm karne ke liye.\n` +
+        `👉 Reply *NO* cancel karne ke liye.`
       );
     }
 
-    // 3. Multi-step setup state machine
-    if (user.setupStep && user.setupStep !== 'NONE') {
-      return await this._handleSetupStep(user, normalized);
+    // 7. Reset confirmation response
+    if (user.setupStep === 'AWAITING_RESET_CONFIRM') {
+      if (lowerInput === 'yes' || lowerInput === 'y' || lowerInput === 'haan') {
+        user.setupStep = 'NONE';
+        await user.save();
+        return await waterService.resetTodayIntake(user);
+      } else {
+        user.setupStep = 'NONE';
+        await user.save();
+        return `❌ Reset cancel ho gaya. Aapka intake waisa hi hai.`;
+      }
     }
 
-    // 4. Command: "help"
-    if (normalized === 'help' || normalized === 'commands') {
-      return {
-        text: this._getHelpMessage(),
-        buttons: [
-          { id: 'btn_progress', text: 'Progress 📊' },
-          { id: 'btn_status', text: 'Status ⚙️' }
-        ]
-      };
+    // 8. Command: /help / menu / how / what
+    if (/^(help|commands|menu|how|what|options|info)$/i.test(lowerInput)) {
+      return this._getHelpMessage();
     }
 
-    // 5. Command: "progress"
-    if (normalized === 'progress') {
-      const progressText = await waterService.getProgressReport(user);
-      return {
-        text: progressText,
-        buttons: [
-          { id: 'quick_250', text: '+250 ml 💧' },
-          { id: 'quick_500', text: '+500 ml 🥤' },
-          { id: 'btn_status', text: 'Status ⚙️' }
-        ],
-        footer: 'Tap to log water intake'
-      };
+    // 9. Command: /progress
+    if (lowerInput === 'progress') {
+      return await waterService.getProgressReport(user);
     }
 
-    // 6. Command: "goal"
-    if (normalized === 'goal') {
-      return {
-        text: `🎯 Your current daily water goal is *${user.dailyGoal} ml*.\n\nSend *setup* if you want to change your goal or schedule.`,
-        buttons: [
-          { id: 'btn_progress', text: 'Progress 📊' },
-          { id: 'btn_status', text: 'Status ⚙️' }
-        ]
-      };
+    // 10. Command: /goal
+    if (lowerInput === 'goal') {
+      const totalGlasses = Math.round(user.dailyGoal / 250);
+      return (
+        `🎯 Aapka current daily target *${user.dailyGoal} ml* (~${totalGlasses} glasses) hai.\n\n` +
+        `💡 *Quick change:* */goal 3000* bhej ke update kijiye.`
+      );
     }
 
-    // 7. Command: "status"
-    if (normalized === 'status') {
+    // 11. Command: /status
+    if (lowerInput === 'status') {
       return await this._getStatusReport(user);
     }
 
-    // 8. Command: "stop" / "pause"
-    if (normalized === 'stop' || normalized === 'pause') {
+    // 12. Command: /stop (Unsubscribe / Pause Reminders)
+    if (lowerInput === 'stop' || lowerInput === 'pause' || lowerInput === 'unsubscribe') {
       user.remindersEnabled = false;
+      user.isSubscribed = false;
       await user.save();
-      return {
-        text: `⏸️ Water reminders have been paused.\n\nSend *start* anytime to enable them again.`,
-        buttons: [
-          { id: 'start', text: 'Start Reminders ▶️' },
-          { id: 'btn_progress', text: 'Progress 📊' }
-        ]
-      };
-    }
-
-    // 9. Command: "start" / "resume"
-    if (normalized === 'start' || normalized === 'resume') {
-      user.remindersEnabled = true;
-      await user.save();
-      return {
-        text: `▶️ Water reminders are now active! Stay hydrated 💧`,
-        buttons: [
-          { id: 'quick_250', text: '+250 ml 💧' },
-          { id: 'quick_500', text: '+500 ml 🥤' },
-          { id: 'btn_progress', text: 'Progress 📊' }
-        ]
-      };
-    }
-
-    // 10. Command: "reset"
-    if (normalized === 'reset') {
-      user.setupStep = 'AWAITING_RESET_CONFIRM';
-      await user.save();
-      return {
-        text: `⚠️ *Are you sure you want to reset today's water intake?*\n\nTap a button below to confirm:`,
-        buttons: [
-          { id: 'reset_confirm', text: 'Yes, Reset 🔄' },
-          { id: 'reset_cancel', text: 'Cancel ❌' }
-        ],
-        footer: 'Reset Confirmation'
-      };
-    }
-
-    // 11. Numeric input for logging water intake (e.g. 250, 500, 750)
-    const numericMatch = normalized.match(/^(\d+)\s*(?:ml)?$/i);
-    if (numericMatch) {
-      const amount = parseInt(numericMatch[1], 10);
-      if (amount > 0 && amount <= 5000) {
-        const result = await waterService.addWaterIntake(user, amount);
-        return {
-          text: result.message,
-          buttons: [
-            { id: 'quick_250', text: '+250 ml 💧' },
-            { id: 'quick_500', text: '+500 ml 🥤' },
-            { id: 'btn_progress', text: 'Progress 📊' }
-          ],
-          footer: 'Tap to log more water'
-        };
-      } else {
-        return `⚠️ Please enter a reasonable water amount between 1 and 5000 ml.`;
-      }
-    }
-
-    // 12. Fallback for unconfigured or unrecognized message
-    if (!user.setupCompleted) {
       return (
-        `👋 Welcome to your *Personal WhatsApp Water Reminder Bot*!\n\n` +
-        `To get started and set your daily water goal, send:\n👉 *setup*`
+        `⏸️ *Water reminders pause kar diye gaye hain.*\n\n` +
+        `Jab bhi wapas shuru karna ho, bas */start* ya */setup* bhej dena!`
       );
     }
 
-    return {
-      text: (
-        `💧 I didn't recognize that command.\n\n` +
-        `• Send an amount like *250* or *500* to log water intake.\n` +
-        `• Send *progress* to see your daily progress.\n` +
-        `• Send *help* for all available commands.`
-      ),
-      buttons: [
-        { id: 'quick_250', text: '+250 ml 💧' },
-        { id: 'quick_500', text: '+500 ml 🥤' },
-        { id: 'btn_progress', text: 'Progress 📊' }
-      ]
-    };
+    // 13. Command: /start (Resume Reminders)
+    if (lowerInput === 'start' || lowerInput === 'resume' || lowerInput === 'subscribe') {
+      user.remindersEnabled = true;
+      user.isSubscribed = true;
+      await user.save();
+      return `▶️ *Water reminders active ho gaye hain!* Stay hydrated 💧`;
+    }
+
+    // 14. Water Intake Logging (e.g. 1 glass, 2 glasses, bottle, cup, 250, 500, pi liya, done, 1L)
+    const parsedContainer = parseContainerAmount(lowerInput);
+    if (parsedContainer) {
+      const result = await waterService.addWaterIntake(user, parsedContainer.amount, parsedContainer.containerName);
+      return result.message;
+    }
+
+    // 15. Non-command messages from subscribed users are silently ignored
+    return null;
   }
 
   /**
-   * Handle setup step transitions
+   * Handle setup step transitions with graceful validation and error handling
    * @private
    */
-  async _handleSetupStep(user, input) {
+  async _handleSetupStep(user, rawInput) {
+    const input = String(rawInput || '').trim();
+    const hinglish = require('../utils/hinglishTemplates');
+
     switch (user.setupStep) {
       // Step 1: Daily Goal
       case 'AWAITING_GOAL': {
-        const goalMatch = input.match(/^(\d+)\s*(?:ml)?$/i);
-        const goal = goalMatch ? parseInt(goalMatch[1], 10) : null;
+        let goal = null;
+        // Check liter format e.g. "2L", "2.5L", "2 liter", "2 litres"
+        const literMatch = input.match(/^(\d+(?:\.\d+)?)\s*(?:l|liter|liters|litres|litre)$/i);
+        if (literMatch) {
+          goal = Math.round(parseFloat(literMatch[1]) * 1000);
+        } else {
+          // Check ml or plain number e.g. "2000", "2000ml", "2500"
+          const goalMatch = input.match(/^(\d+)\s*(?:ml)?$/i);
+          goal = goalMatch ? parseInt(goalMatch[1], 10) : null;
+        }
 
         if (!goal || goal < 500 || goal > 15000) {
-          return `⚠️ Please enter a valid daily goal between 500 ml and 15000 ml.\n\nExample: 2500`;
+          return hinglish.getInvalidGoalMessage();
         }
 
         user.dailyGoal = goal;
         user.setupStep = 'AWAITING_WAKEUP';
         await user.save();
 
-        return (
-          `What time do you usually wake up?\n\n` +
-          `Example: 8:00 AM`
-        );
+        return hinglish.getStepWakeMessage();
       }
 
       // Step 2: Wake-up Time
       case 'AWAITING_WAKEUP': {
-        const parsedTime = parseTimeString(input);
+        const parsedTime = parseTimeString(input, 'wake');
         if (!parsedTime.valid) {
-          return `⚠️ ${parsedTime.error}\n\nExample: 8:00 AM`;
+          return hinglish.getInvalidTimeMessage('wake');
         }
 
         user.wakeUpTime = parsedTime.formatted;
@@ -279,17 +340,14 @@ class UserService {
         user.setupStep = 'AWAITING_SLEEP';
         await user.save();
 
-        return (
-          `What time do you usually sleep?\n\n` +
-          `Example: 11:00 PM`
-        );
+        return hinglish.getStepSleepMessage();
       }
 
       // Step 3: Sleep Time
       case 'AWAITING_SLEEP': {
-        const parsedTime = parseTimeString(input);
+        const parsedTime = parseTimeString(input, 'sleep');
         if (!parsedTime.valid) {
-          return `⚠️ ${parsedTime.error}\n\nExample: 11:00 PM`;
+          return hinglish.getInvalidTimeMessage('sleep');
         }
 
         user.sleepTime = parsedTime.formatted;
@@ -298,64 +356,36 @@ class UserService {
         user.setupStep = 'AWAITING_INTERVAL';
         await user.save();
 
-        return {
-          text: (
-            `⏱️ *How often should I remind you to drink water?*\n\n` +
-            `Tap an option below:`
-          ),
-          buttons: [
-            { id: 'interval_1', text: 'Every 1 Hour ⏰' },
-            { id: 'interval_2', text: 'Every 2 Hours ⏰' },
-            { id: 'interval_3', text: 'Every 3 Hours ⏰' }
-          ],
-          footer: 'Choose your reminder frequency'
-        };
+        return hinglish.getStepIntervalMessage();
       }
 
       // Step 4: Reminder Interval
       case 'AWAITING_INTERVAL': {
-        const intervalMatch = input.match(/^(\d+)\s*(?:hours?|hrs?)?$/i);
+        // Accept "1", "1 hour", "1hr", "1 hr", "every 1 hour", "1h", "har 1 ghanta", "2", "2 hours", etc.
+        const intervalMatch = input.match(/(?:every\s+|har\s+)?(\d+)\s*(?:hours?|hrs?|h|ghante?|ghanta)?/i);
         const interval = intervalMatch ? parseInt(intervalMatch[1], 10) : null;
 
         if (!interval || interval < 1 || interval > 12) {
-          return {
-            text: `⚠️ Please select an interval between 1 and 12 hours:`,
-            buttons: [
-              { id: 'interval_1', text: 'Every 1 Hour ⏰' },
-              { id: 'interval_2', text: 'Every 2 Hours ⏰' },
-              { id: 'interval_3', text: 'Every 3 Hours ⏰' }
-            ]
-          };
+          return hinglish.getInvalidIntervalMessage();
         }
 
         user.reminderInterval = interval;
         user.setupCompleted = true;
         user.setupStep = 'NONE';
+        user.isSubscribed = true;
         user.remindersEnabled = true;
+        user.lastReminderSentAt = new Date(); // Next reminder will fire after 1 interval
+        user.lastReminderStatus = 'NONE';
+        user.nudgeSentForCurrentReminder = false;
         await user.save();
 
-        return {
-          text: (
-            `✅ *You're all set!*\n\n` +
-            `🎯 Daily goal: ${user.dailyGoal} ml\n` +
-            `🌅 Wake up: ${user.wakeUpTime}\n` +
-            `🌙 Sleep: ${user.sleepTime}\n` +
-            `⏰ Reminder: Every ${user.reminderInterval} hour${user.reminderInterval > 1 ? 's' : ''}\n\n` +
-            `I'll remind you to drink water throughout the day 💧`
-          ),
-          buttons: [
-            { id: 'quick_250', text: '+250 ml 💧' },
-            { id: 'quick_500', text: '+500 ml 🥤' },
-            { id: 'btn_progress', text: 'Progress 📊' }
-          ],
-          footer: 'Tap to log your first drink'
-        };
+        return hinglish.getSetupCompleteMessage(user);
       }
 
       default: {
         user.setupStep = 'NONE';
         await user.save();
-        return `Setup reset. Send *setup* to start again.`;
+        return `Setup reset. Send */setup* to start again.`;
       }
     }
   }
@@ -366,25 +396,18 @@ class UserService {
    */
   async _getStatusReport(user) {
     const progressText = await waterService.getProgressReport(user);
-    const statusIcon = user.remindersEnabled ? '🟢 Active' : '🔴 Paused';
+    const statusIcon = user.remindersEnabled && user.isSubscribed ? '🟢 Active (Subscribed)' : '🔴 Paused';
 
-    return {
-      text: (
-        `📊 *Bot Status & Configuration*\n\n` +
-        `• Reminders: ${statusIcon}\n` +
-        `• Daily Goal: ${user.dailyGoal} ml\n` +
-        `• Active Window: ${user.wakeUpTime} to ${user.sleepTime}\n` +
-        `• Frequency: Every ${user.reminderInterval} hour${user.reminderInterval > 1 ? 's' : ''}\n` +
-        `• Timezone: ${user.timezone}\n\n` +
-        `━━━━━━━━━━━━━━━\n` +
-        progressText
-      ),
-      buttons: [
-        { id: 'quick_250', text: '+250 ml 💧' },
-        { id: 'quick_500', text: '+500 ml 🥤' },
-        { id: 'btn_progress', text: 'Progress 📊' }
-      ]
-    };
+    return (
+      `📊 *Bot Status & Configuration*\n\n` +
+      `• Reminders: ${statusIcon}\n` +
+      `• Daily Target: ${user.dailyGoal} ml\n` +
+      `• Active Window: ${user.wakeUpTime} to ${user.sleepTime}\n` +
+      `• Frequency: Har ${user.reminderInterval} ghante me\n` +
+      `• Timezone: ${user.timezone}\n\n` +
+      `━━━━━━━━━━━━━━━\n` +
+      progressText
+    );
   }
 
   /**
@@ -392,18 +415,8 @@ class UserService {
    * @private
    */
   _getHelpMessage() {
-    return (
-      `💧 *WhatsApp Water Reminder Bot Commands*\n\n` +
-      `• *<number>* (e.g. *250*, *500*) - Log water consumed in ml\n` +
-      `• *progress* - View today's intake & progress bar\n` +
-      `• *setup* - Start/reconfigure your water goal & schedule\n` +
-      `• *status* - View your configuration & status\n` +
-      `• *goal* - View your current daily goal\n` +
-      `• *stop* - Pause water reminders\n` +
-      `• *start* - Resume water reminders\n` +
-      `• *reset* - Reset today's water intake count\n` +
-      `• *help* - Show this command guide`
-    );
+    const hinglish = require('../utils/hinglishTemplates');
+    return hinglish.getHelpMessageHinglish();
   }
 }
 

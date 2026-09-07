@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Water Bot — Interactive Web Simulator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Navigation -->
+    <header class="app-header">
+      <div class="logo-group">
+        <div class="logo-icon">💧</div>
+        <div>
+          <h1 class="logo-title">WhatsApp Water Bot</h1>
+          <p class="logo-subtitle">Interactive Dev Simulator & Experience Playground</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="badge live-badge">🟢 Live Connected</span>
+        <button id="resetStateBtn" class="btn btn-danger" title="Reset user database state to test /setup fresh">
+          🔄 Reset State
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="workspace">
+      <!-- Left: WhatsApp Chat Screen Mockup -->
+      <section class="phone-wrapper">
+        <div class="phone-frame">
+          <!-- WhatsApp Chat Header -->
+          <div class="wa-chat-header">
+            <div class="wa-avatar">💧</div>
+            <div class="wa-contact-info">
+              <div class="wa-contact-name">Hydration Reminder Bot</div>
+              <div class="wa-contact-status" id="botStatus">online</div>
+            </div>
+            <div class="wa-header-icons">
+              <span title="Video">📹</span>
+              <span title="Call">📞</span>
+              <span title="More">⋮</span>
+            </div>
+          </div>
+
+          <!-- Chat Messages Scroll Area -->
+          <div class="wa-messages-container" id="messagesContainer">
+            <div class="wa-date-divider"><span>TODAY</span></div>
+            <div class="wa-system-message">
+              <span>🔒 Messages are encrypted. Type <b>/setup</b> to start your subscription.</span>
+            </div>
+          </div>
+
+          <!-- Quick Action Prompt Pills -->
+          <div class="quick-pills-bar">
+            <span class="pills-label">Quick Prompts:</span>
+            <div class="pills-scroll" id="quickPills">
+              <button class="pill-btn" data-msg="/setup">/setup 🚀</button>
+              <button class="pill-btn" data-msg="YES">YES 👍</button>
+              <button class="pill-btn" data-msg="2.5L">2.5L 🎯</button>
+              <button class="pill-btn" data-msg="8:00 AM">8:00 AM 🌅</button>
+              <button class="pill-btn" data-msg="11:00 PM">11:00 PM 🌙</button>
+              <button class="pill-btn" data-msg="1">1 (Every 1 hr) ⏱️</button>
+              <button class="pill-btn" data-msg="1 glass">1 glass 🥛</button>
+              <button class="pill-btn" data-msg="2 glasses">2 glasses 🥛🥛</button>
+              <button class="pill-btn" data-msg="1 bottle">1 bottle 🍶</button>
+              <button class="pill-btn" data-msg="pi liya">pi liya ✅</button>
+              <button class="pill-btn" data-msg="250">250 ml</button>
+              <button class="pill-btn" data-msg="/progress">/progress 📊</button>
+              <button class="pill-btn" data-msg="/undo">/undo ↩️</button>
+              <button class="pill-btn" data-msg="/help">/help 📜</button>
+            </div>
+          </div>
+
+          <!-- WhatsApp Chat Input Bar -->
+          <div class="wa-input-bar">
+            <button class="wa-tool-btn" title="Emoji">😊</button>
+            <button class="wa-tool-btn" title="Attach">📎</button>
+            <input type="text" id="messageInput" placeholder="Type a message (e.g. /setup, 250, /progress)..." autocomplete="off">
+            <button id="sendBtn" class="wa-send-btn" title="Send message">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right: Live Hydration & Database Inspector Panel -->
+      <aside class="dashboard-panel">
+        <!-- Live Bottle Visualizer -->
+        <div class="card bottle-card">
+          <div class="card-header">
+            <h3>💧 Live Water Bottle</h3>
+            <span id="bottlePercentage" class="percentage-badge">0%</span>
+          </div>
+          <div class="bottle-container">
+            <div class="water-bottle">
+              <div class="bottle-cap"></div>
+              <div class="bottle-neck"></div>
+              <div class="bottle-body">
+                <div class="water-fill" id="waterFill" style="height: 0%;">
+                  <div class="water-wave"></div>
+                </div>
+                <div class="bottle-stats-overlay">
+                  <span id="bottleConsumedText">0</span>
+                  <small>/ <span id="bottleGoalText">2000</span> ml</small>
+                </div>
+              </div>
+            </div>
+            <div class="bottle-legend">
+              <div class="legend-item">
+                <span class="legend-dot green"></span>
+                <span>Consumed: <b id="statConsumed">0 ml</b></span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot blue"></span>
+                <span>Remaining: <b id="statRemaining">2000 ml</b></span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot purple"></span>
+                <span>Daily Target: <b id="statGoal">2000 ml</b></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bot State Inspector Card -->
+        <div class="card state-card">
+          <div class="card-header">
+            <h3>⚙️ Live User State</h3>
+            <span id="subStatusBadge" class="status-tag not-subscribed">Not Subscribed</span>
+          </div>
+          <div class="state-grid">
+            <div class="state-item">
+              <label>Phone ID</label>
+              <span id="statePhone">919638767233</span>
+            </div>
+            <div class="state-item">
+              <label>Setup Step</label>
+              <span id="stateStep" class="highlight-val">NONE</span>
+            </div>
+            <div class="state-item">
+              <label>Reminder State</label>
+              <span id="stateReminderStatus" class="highlight-val">IDLE</span>
+            </div>
+            <div class="state-item">
+              <label>Last Drink</label>
+              <span id="stateLastDrink">None yet</span>
+            </div>
+            <div class="state-item">
+              <label>Active Window</label>
+              <span id="stateWindow">9:00 AM – 11:00 PM</span>
+            </div>
+            <div class="state-item">
+              <label>Frequency</label>
+              <span id="stateInterval">Every 1 hr</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Testing Tools Card -->
+        <div class="card tools-card">
+          <div class="card-header">
+            <h3>⚡ Simulation Actions</h3>
+          </div>
+          <div class="tools-actions">
+            <button id="triggerMorningBtn" class="btn btn-secondary btn-block">
+              🌅 Trigger Good Morning Kickoff (Hinglish)
+            </button>
+            <button id="triggerReminderBtn" class="btn btn-primary btn-block">
+              ⏰ Trigger Scheduled Reminder
+            </button>
+            <button id="simulateSeenBtn" class="btn btn-secondary btn-block">
+              👀 Simulate Message Seen (Blue Tick ✓✓)
+            </button>
+            <button id="simulateNudgeBtn" class="btn btn-secondary btn-block">
+              🔔 Simulate 25-Min Gentle Nudge
+            </button>
+            <button id="triggerBedtimeBtn" class="btn btn-secondary btn-block">
+              🌙 Trigger Bedtime Final Recap
+            </button>
+            <p class="tool-hint">Test the entire intelligent reminder lifecycle in 1 click!</p>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
