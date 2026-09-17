@@ -428,6 +428,7 @@ const getHelpMessageHinglish = () => {
 };
 
 module.exports = {
+  NUTRITION_TIPS,
   createProgressBar,
   getRandomNutritionTip,
   getWelcomeConsentMessage,

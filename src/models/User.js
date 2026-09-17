@@ -9,6 +9,14 @@ const userSchema = new mongoose.Schema(
       trim: true,
       index: true
     },
+    password: {
+      type: String,
+      default: null
+    },
+    expoPushToken: {
+      type: String,
+      default: null
+    },
     whatsappJid: {
       type: String,
       default: null,

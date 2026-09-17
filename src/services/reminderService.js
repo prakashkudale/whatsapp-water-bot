@@ -1,25 +1,26 @@
 const User = require('../models/User');
 const WaterLog = require('../models/WaterLog');
 const waterService = require('./waterService');
-const whatsappService = require('./whatsappService');
+const pushNotificationService = require('./pushNotificationService');
 const {
   getCurrentDateString,
   getPreviousDateString,
   getCurrentTimeInTimezone,
   isTimeWithinWakeWindow
 } = require('../utils/timeUtils');
-const hinglish = require('../utils/hinglishTemplates');
 const logger = require('../utils/logger');
 
 class ReminderService {
   /**
-   * Generate energizing Good Morning kickoff message in Funny Hinglish
+   * Generate energizing Good Morning kickoff message
    * @param {object} user
    * @param {object|null} yesterdayLog
    * @returns {string}
    */
   generateMorningKickoffText(user, yesterdayLog) {
-    return hinglish.getMorningKickoffMessage(user, yesterdayLog);
+    return yesterdayLog && yesterdayLog.goalCompleted
+      ? 'morning_streak'
+      : 'morning';
   }
 
   /**
@@ -158,8 +159,12 @@ class ReminderService {
           const messageText = this.generateAdaptiveReminderText(todayLog.goal, todayLog.totalConsumed, user, urgency);
           const destination = user.whatsappJid || user.phoneNumber;
 
-          logger.info(`⏰ Sending scheduled reminder to ${user.phoneNumber}`);
-          const sendResult = await whatsappService.sendTextMessage(destination, messageText);
+          logger.info(`⏰ Sending smart reminder to ${user.phoneNumber} (urgency: ${urgency})`);
+          const sendResult = await pushNotificationService.sendSmartReminderPush(user, urgency, {
+            totalConsumed: todayLog.totalConsumed,
+            goal: todayLog.goal,
+            remaining: Math.max(0, todayLog.goal - todayLog.totalConsumed)
+          });
 
           if (sendResult && sendResult.success) {
             user.lastReminderSentAt = now;
@@ -208,8 +213,13 @@ class ReminderService {
           const kickoffMsg = this.generateMorningKickoffText(user, yesterdayLog);
           const destination = user.whatsappJid || user.phoneNumber;
 
-          logger.info(`🌅 Sending Good Morning Kickoff to ${user.phoneNumber}`);
-          const sendResult = await whatsappService.sendTextMessage(destination, kickoffMsg);
+          logger.info(`🌅 Sending Good Morning push to ${user.phoneNumber}`);
+          const sendResult = await pushNotificationService.sendPushNotification(
+            user.expoPushToken,
+            '🌅 Good Morning!',
+            user.lastMorningKickoffDate ? 'Utho, jaago, 1 glass paani piyo! Kal ka streak tutne mat dena!' : 'Khali pet 1 glass paani = superpower on! Aaj ka goal start karo!',
+            { type: 'morning' }
+          );
 
           if (sendResult && sendResult.success) {
             user.lastMorningKickoffDate = todayDate;
@@ -254,8 +264,13 @@ class ReminderService {
           const recapMsg = this.generateBedtimeRecapText(user, todayLog);
           const destination = user.whatsappJid || user.phoneNumber;
 
-          logger.info(`🌙 Sending Bedtime Recap to ${user.phoneNumber}`);
-          const sendResult = await whatsappService.sendTextMessage(destination, recapMsg);
+          logger.info(`🌙 Sending Bedtime push to ${user.phoneNumber}`);
+          const sendResult = await pushNotificationService.sendPushNotification(
+            user.expoPushToken,
+            '🌙 Sone Se Pehle Check!',
+            `Aaj ${todayLog.totalConsumed}ml piya! ${todayLog.goalCompleted ? '100% complete! Champion hai tu! 🏆' : `${Math.max(0, todayLog.goal - todayLog.totalConsumed)}ml baaki hai — last chance!`}`,
+            { type: 'bedtime' }
+          );
 
           if (sendResult && sendResult.success) {
             user.lastEveningRecapDate = todayDate;
@@ -294,8 +309,13 @@ class ReminderService {
           const nudgeText = hinglish.getGentleNudgeMessage();
 
           const destination = user.whatsappJid || user.phoneNumber;
-          logger.info(`🔔 Sending 1 gentle nudge to ${user.phoneNumber} (seen message > 25m ago without logging)`);
-          const sendResult = await whatsappService.sendTextMessage(destination, nudgeText);
+          logger.info(`🔔 Sending nudge push to ${user.phoneNumber}`);
+          const sendResult = await pushNotificationService.sendPushNotification(
+            user.expoPushToken,
+            '👀 Ahem Ahem!',
+            'Notification dekha aur ignore kar diya? Chalo fatafat 1 glass pi lo bhai! 😤',
+            { type: 'nudge' }
+          );
 
           if (sendResult && sendResult.success) {
             user.nudgeSentForCurrentReminder = true;
