@@ -37,10 +37,62 @@ class ReminderService {
    * @param {number} goal - Daily goal in ml
    * @param {number} totalConsumed - Current consumed in ml
    * @param {object} user - User document
+   * @param {string} urgency - Urgency level ('critical', 'behind', 'ontrack', 'ahead', 'chill')
    * @returns {string} Adaptive reminder text
    */
-  generateAdaptiveReminderText(goal, totalConsumed, user) {
-    return hinglish.getAdaptiveReminderMessage(goal, totalConsumed, user);
+  generateAdaptiveReminderText(goal, totalConsumed, user, urgency = 'ontrack') {
+    return hinglish.getAdaptiveReminderMessage(goal, totalConsumed, user, urgency);
+  }
+
+  /**
+   * Calculate smart dynamic interval based on pacing
+   * @param {object} user 
+   * @param {object} todayLog 
+   * @returns {{intervalMs: number, urgency: string}}
+   */
+  calculateSmartInterval(user, todayLog) {
+    const current = getCurrentTimeInTimezone(user.timezone);
+    const wakeTotal = (user.wakeUpHour ?? 8) * 60 + (user.wakeUpMinute ?? 0);
+    const sleepTotal = (user.sleepHour ?? 23) * 60 + (user.sleepMinute ?? 0);
+    
+    let activeMinutes = sleepTotal > wakeTotal ? sleepTotal - wakeTotal : (1440 - wakeTotal) + sleepTotal;
+    let minsPassed = current.totalMinutes >= wakeTotal 
+      ? current.totalMinutes - wakeTotal 
+      : (1440 - wakeTotal) + current.totalMinutes;
+    
+    // Safety bounds
+    if (activeMinutes <= 0) activeMinutes = 1440;
+    if (minsPassed < 0) minsPassed = 0;
+    
+    let minsLeft = activeMinutes - minsPassed;
+    if (minsLeft < 0) minsLeft = 0; // Past bedtime
+
+    const waterLeft = Math.max(0, todayLog.goal - todayLog.totalConsumed);
+    const hoursLeft = Math.max(0.5, minsLeft / 60); // Don't divide by 0, min half hour
+    
+    const idealPace = waterLeft / hoursLeft; // ml per hour needed
+
+    // Morning burst: first hour after wake up
+    if (minsPassed <= 60 && todayLog.totalConsumed < 500) {
+      return { intervalMs: 30 * 60 * 1000, urgency: 'behind' }; 
+    }
+
+    // Near bedtime: last 2 hours
+    if (minsLeft <= 120 && waterLeft > 500) {
+      return { intervalMs: 30 * 60 * 1000, urgency: 'critical' };
+    }
+
+    if (idealPace > 400) {
+      return { intervalMs: 30 * 60 * 1000, urgency: 'critical' }; // 30 mins
+    } else if (idealPace > 250) {
+      return { intervalMs: 45 * 60 * 1000, urgency: 'behind' }; // 45 mins
+    } else if (idealPace > 150) {
+      return { intervalMs: 60 * 60 * 1000, urgency: 'ontrack' }; // 1 hour
+    } else if (idealPace > 80) {
+      return { intervalMs: 90 * 60 * 1000, urgency: 'ahead' }; // 1.5 hours
+    } else {
+      return { intervalMs: 150 * 60 * 1000, urgency: 'chill' }; // 2.5 hours
+    }
   }
 
   /**
@@ -89,20 +141,21 @@ class ReminderService {
             continue;
           }
 
-          // Check interval timing
-          const intervalHours = user.reminderInterval || 1;
-          const intervalMs = intervalHours * 60 * 60 * 1000;
+          // Calculate smart interval
+          const smartCalc = this.calculateSmartInterval(user, todayLog);
+          const intervalMs = smartCalc.intervalMs;
+          const urgency = smartCalc.urgency;
 
           if (user.lastReminderSentAt) {
             const timeSinceLastReminder = now.getTime() - new Date(user.lastReminderSentAt).getTime();
             if (timeSinceLastReminder < intervalMs) {
               const remainingMinutes = Math.round((intervalMs - timeSinceLastReminder) / 60000);
-              logger.debug(`Skipping ${user.phoneNumber}: Next reminder in ${remainingMinutes} mins`);
+              logger.debug(`Skipping ${user.phoneNumber}: Next reminder in ${remainingMinutes} mins (Urgency: ${urgency})`);
               continue;
             }
           }
 
-          const messageText = this.generateAdaptiveReminderText(todayLog.goal, todayLog.totalConsumed, user);
+          const messageText = this.generateAdaptiveReminderText(todayLog.goal, todayLog.totalConsumed, user, urgency);
           const destination = user.whatsappJid || user.phoneNumber;
 
           logger.info(`⏰ Sending scheduled reminder to ${user.phoneNumber}`);

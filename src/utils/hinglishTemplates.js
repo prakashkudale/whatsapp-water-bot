@@ -1,5 +1,6 @@
 /**
  * Funny & Engaging Hinglish Message Templates for Water Reminder Bot
+ * With Smart Adaptive Reminders & Vegetarian Nutrition Tips
  */
 
 /**
@@ -13,6 +14,38 @@ const createProgressBar = (percentage, totalBlocks = 12) => {
   const filledBlocks = Math.round((clamped / 100) * totalBlocks);
   const emptyBlocks = totalBlocks - filledBlocks;
   return '█'.repeat(filledBlocks) + '░'.repeat(emptyBlocks);
+};
+
+// ===== Vegetarian Nutrition Tips Pool (No eggs, 100% veg) =====
+const NUTRITION_TIPS = [
+  `💪 *Nutrition Tip:* Paneer (100g) me 18g protein hota hai — dinner me paneer tikka try karo!`,
+  `💪 *Nutrition Tip:* Ek glass doodh me 8g protein — paani ke baad doodh bhi pi lo!`,
+  `💪 *Nutrition Tip:* Chana (chickpeas) me 19g protein per 100g — budget bodybuilding! 💰`,
+  `💪 *Nutrition Tip:* Soybean me 36g protein per 100g — sabse sasta protein source! 🫘`,
+  `💪 *Nutrition Tip:* Moong dal me 24g protein per 100g — roz dal chawal khao boss! 🍚`,
+  `💪 *Nutrition Tip:* Dahi (curd) 200g me 7g protein + gut health boost! Roz khao! 🥛`,
+  `💪 *Nutrition Tip:* Rajma me 24g protein per 100g — rajma chawal = muscle fuel! 💥`,
+  `💪 *Nutrition Tip:* Peanut butter 2 spoon me 8g protein — roti pe laga ke khao! 🥜`,
+  `💪 *Nutrition Tip:* Palak (spinach) me iron + calcium — Popeye bhi yahi khata tha! 🥬`,
+  `💪 *Nutrition Tip:* Badam (almonds) 20 pcs = 6g protein + vitamin E — snack me khao! 🌰`,
+  `💪 *Nutrition Tip:* Tofu 100g me 8g protein — paneer ka healthy cousin! Try karo! 🧈`,
+  `💪 *Nutrition Tip:* Sprouts (ankurit chana) me protein 2x ho jaata hai + digestion improve! 🌱`,
+  `💪 *Nutrition Tip:* Sattu drink me 20g protein per glass — Bihar ka OG protein shake! 🥤`,
+  `💪 *Nutrition Tip:* Masoor dal me 26g protein per 100g — roz 1 katori zaroor khao! 🥣`,
+  `💪 *Nutrition Tip:* Banana + doodh = instant energy + 10g protein — gym ke baad perfect! 🍌`,
+  `💪 *Nutrition Tip:* Kaju (cashew) 30g me 5g protein + healthy fats — mood bhi accha hoga! 😊`,
+  `💪 *Nutrition Tip:* Chana dal ka besan chilla = 15g protein per serving — nashte me bana lo! 🥞`,
+  `💪 *Nutrition Tip:* Ragi (nachni) me calcium gai ke doodh se 3x zyada hota hai! 💀🦴`,
+  `💪 *Nutrition Tip:* Til (sesame seeds) 2 spoon me iron + calcium — laddu bana ke khao! ✨`,
+  `💪 *Nutrition Tip:* Paani + nimbu + honey = electrolytes reset — workout ke baad peena! 🍋`
+];
+
+/**
+ * Get a random vegetarian nutrition tip
+ * @returns {string}
+ */
+const getRandomNutritionTip = () => {
+  return NUTRITION_TIPS[Math.floor(Math.random() * NUTRITION_TIPS.length)];
 };
 
 // 1. Welcome & Consent
@@ -54,7 +87,7 @@ const getInvalidConsentMessage = () => {
 const getStepGoalMessage = () => {
   return (
     `🎉 *Shabash! Chalo aapka schedule set karte hain.*\n\n` +
-    `💧 *Step 1 of 4: Daily Goal*\n` +
+    `💧 *Step 1 of 3: Daily Goal*\n` +
     `Din bhar me kitna paani peene ka target hai (ml ya liters me)?\n\n` +
     `👉 Example: *2000* (ya *2L*, *2500*, *3000*)`
   );
@@ -73,7 +106,7 @@ const getInvalidGoalMessage = () => {
 // 6. Step 2: Wake-Up Time
 const getStepWakeMessage = () => {
   return (
-    `🌅 *Step 2 of 4: Wake-Up Time*\n` +
+    `🌅 *Step 2 of 3: Wake-Up Time*\n` +
     `Subah kitne baje neend khulti hai? (Kumbhakaran timing mat daalna 😜)\n\n` +
     `👉 Example: *8:00 AM* (ya *7:30 AM*, *9 AM*, *8*)`
   );
@@ -88,38 +121,16 @@ const getInvalidTimeMessage = (context = 'time') => {
   );
 };
 
-// 8. Step 3: Bedtime
+// 8. Step 3: Bedtime (FINAL STEP)
 const getStepSleepMessage = () => {
   return (
-    `🌙 *Step 3 of 4: Bedtime*\n` +
+    `🌙 *Step 3 of 3: Bedtime*\n` +
     `Raat ko phone rakh ke kitne baje sote ho? 😴\n\n` +
     `👉 Example: *11:00 PM* (ya *10:30 PM*, *11 PM*, *11*)`
   );
 };
 
-// 9. Step 4: Reminder Frequency
-const getStepIntervalMessage = () => {
-  return (
-    `⏱️ *Step 4 of 4: Reminder Frequency*\n` +
-    `Kitni der me paani ka reminder bhejun?\n\n` +
-    `👉 Reply kijiye:\n` +
-    `*1* = Har 1 ghante me\n` +
-    `*2* = Har 2 ghante me\n` +
-    `*3* = Har 3 ghante me`
-  );
-};
-
-// 10. Invalid Interval Input
-const getInvalidIntervalMessage = () => {
-  return (
-    `⚠️ *Valid frequency number choose kijiye:*\n\n` +
-    `👉 Reply:\n` +
-    `*1* = Har 1 ghante me\n` +
-    `*2* = Har 2 ghante me\n` +
-    `*3* = Har 3 ghante me\n\n` +
-    `_(Cancel karne ke liye *cancel* bhejo)_`
-  );
-};
+// 9-10. REMOVED: Step 4 (Interval) — now handled by Smart Adaptive System automatically
 
 // 11. Setup Completed Confirmation
 const getSetupCompleteMessage = (user) => {
@@ -128,7 +139,8 @@ const getSetupCompleteMessage = (user) => {
     `🎯 Daily Goal: *${user.dailyGoal} ml*\n` +
     `🌅 Uthne ka time: *${user.wakeUpTime}*\n` +
     `🌙 Sone ka time: *${user.sleepTime}*\n` +
-    `⏰ Reminders: *Har ${user.reminderInterval} ghante me*\n\n` +
+    `⏰ Reminders: *🧠 Smart Auto Mode*\n` +
+    `_(Aapki pace ke hisaab se automatic adjust honge!)_\n\n` +
     `━━━━━━━━━━━━━━━\n` +
     `💡 *Super Easy Logging:*\n` +
     `• Bas likho *1 glass*, *250*, *1 bottle*, ya *pi liya* aur log ho jayega!\n` +
@@ -139,54 +151,112 @@ const getSetupCompleteMessage = (user) => {
   );
 };
 
-// 12. Funny & Adaptive Scheduled Reminders
-const getAdaptiveReminderMessage = (goal, totalConsumed, user) => {
+// 12. Smart Adaptive Scheduled Reminders (urgency-aware + nutrition tips)
+/**
+ * @param {number} goal - Daily goal in ml
+ * @param {number} totalConsumed - Current consumed in ml
+ * @param {object} user - User document
+ * @param {string} urgency - 'critical' | 'behind' | 'ontrack' | 'ahead' | 'chill'
+ * @returns {string}
+ */
+const getAdaptiveReminderMessage = (goal, totalConsumed, user, urgency = 'ontrack') => {
   const remaining = Math.max(0, goal - totalConsumed);
   const glassesDrank = Math.round(totalConsumed / 250 * 10) / 10;
   const totalGlasses = Math.round(goal / 250);
   const remainingGlasses = Math.max(0, Math.round(remaining / 250));
+  const percentage = goal > 0 ? Math.round((totalConsumed / goal) * 100) : 0;
+  const bar = createProgressBar(percentage);
+  const tip = getRandomNutritionTip();
 
   const guide = (
     `━━━━━━━━━━━━━━━\n` +
-    `💡 *Quick Log Guide:*\n` +
-    `🥛 *1 glass* = 250 ml\n` +
-    `🍶 *1 bottle* = 500 ml\n` +
-    `☕ *1 cup* = 200 ml\n\n` +
-    `👉 Bas reply karo: *1 glass* (ya *250*, *pi liya*)`
+    `💡 *Quick Log:* 🥛 *1 glass* = 250ml | 🍶 *1 bottle* = 500ml\n` +
+    `👉 Bas reply karo: *1 glass* (ya *250*, *pi liya*)\n\n` +
+    `${tip}`
   );
 
-  // Close to goal (< 800ml remaining)
-  if (remaining > 0 && remaining <= 800 && totalConsumed > 0) {
-    return (
-      `🔥 *Arey waah! Aaj toh finish line ke ekdum paas ho!* 🚀\n\n` +
-      `Intake: *${totalConsumed} / ${goal} ml* (🥛 ${glassesDrank}/${totalGlasses} glasses).\n` +
-      `Sirf *${remaining} ml* (~${remainingGlasses} glasses) baaki hai goal phodne ke liye! 🎯\n\n` +
-      guide
-    );
+  const scorecard = `📊 *${totalConsumed}/${goal} ml* (${percentage}%) ${bar}`;
+
+  // --- CRITICAL: Way behind, very little time left ---
+  if (urgency === 'critical') {
+    const criticalTemplates = [
+      `🚨🚨 *EMERGENCY HYDRATION ALERT!* 🚨🚨\n\n` +
+      `Bhai time bohot kam hai aur paani bohot zyada baaki hai!\n` +
+      `${scorecard}\n` +
+      `Abhi *${remaining} ml* (~${remainingGlasses} glasses) peena hai — TURANT shuru karo! 🏃‍♂️💨\n\n${guide}`,
+
+      `⏰🔥 *Time chal raha hai aur glass khaali hai!*\n\n` +
+      `${scorecard}\n` +
+      `Bas *${remaining} ml* baaki — har 15 min me 1 glass gatak lo warna goal miss! 😤\n\n${guide}`
+    ];
+    return criticalTemplates[Math.floor(Math.random() * criticalTemplates.length)];
   }
 
-  // Behind goal
-  const wakeTotal = (user.wakeUpHour ?? 8) * 60 + (user.wakeUpMinute ?? 0);
-  const sleepTotal = (user.sleepHour ?? 23) * 60 + (user.sleepMinute ?? 0);
-  const activeDay = Math.max(60, sleepTotal > wakeTotal ? sleepTotal - wakeTotal : (1440 - wakeTotal) + sleepTotal);
-  
-  // Choose among hilarious random templates when behind or on track
-  const behindTemplates = [
-    `🌵 *Hello! Cactus banne ka plan hai kya?* 😜\n\nTarget se thoda peeche chal rahe ho dost!\nIntake: *${totalConsumed} / ${goal} ml* (🥛 ${glassesDrank}/${totalGlasses} glasses).\n\nUtho aur turant 1 glass paani gatak lo! 🥛⚡\n\n${guide}`,
-    `🚨 *Hydro Alert! Gala sookh raha hai boss!* 🏜️\n\nAapne abhi tak sirf *${totalConsumed} / ${goal} ml* paani piya hai.\nScreen se 10 second nazrein hatao aur 1 glass paani piyo! 💧\n\n${guide}`
-  ];
+  // --- BEHIND: Noticeably behind pace ---
+  if (urgency === 'behind') {
+    const behindTemplates = [
+      `🌵 *Hello! Cactus banne ka plan hai kya?* 😜\n\n` +
+      `Target se peeche chal rahe ho dost!\n` +
+      `${scorecard}\n` +
+      `Abhi *${remaining} ml* (~${remainingGlasses} glasses) baaki — utho aur gatak lo! 🥛⚡\n\n${guide}`,
 
-  const onTrackTemplates = [
-    `💧 *Oye dost! Paani peene ka time ho gaya!* 🥛\n\nPhone scroll karte karte gale ko thandak do, 1 glass fresh paani pi lo!\nAaj ka intake: *${totalConsumed} / ${goal} ml* (🥛 ${glassesDrank} of ${totalGlasses} glasses).\n\n${guide}`,
-    `⚡ *Energy booster break!* 🥤\n\nEk glass paani piyo aur lethargy ko bye-bye bolo!\nIntake: *${totalConsumed} / ${goal} ml* (🥛 ${glassesDrank}/${totalGlasses} glasses).\n\n${guide}`
-  ];
+      `🚨 *Hydro Alert! Gala sookh raha hai boss!* 🏜️\n\n` +
+      `${scorecard}\n` +
+      `Screen se 10 second nazrein hatao aur 1 glass paani piyo! 💧\n\n${guide}`,
 
-  if (totalConsumed < (goal * 0.4)) {
+      `📢 *Arre sun! Body bol rahi hai — PAANI DE!* 😩\n\n` +
+      `${scorecard}\n` +
+      `Abhi *${remainingGlasses} glasses* aur peene hain — chalo thoda speed badhao! 🏎️\n\n${guide}`
+    ];
     return behindTemplates[Math.floor(Math.random() * behindTemplates.length)];
   }
 
-  return onTrackTemplates[Math.floor(Math.random() * onTrackTemplates.length)];
+  // --- ON TRACK: Doing well, gentle reminder ---
+  if (urgency === 'ontrack') {
+    const onTrackTemplates = [
+      `💧 *Oye dost! Paani peene ka time ho gaya!* 🥛\n\n` +
+      `Pace acchi chal rahi hai, keep it up!\n` +
+      `${scorecard}\n` +
+      `1 glass fresh paani pi lo aur chill karo! 😎\n\n${guide}`,
+
+      `⚡ *Energy booster break!* 🥤\n\n` +
+      `Ek glass paani piyo aur lethargy ko bye-bye bolo!\n` +
+      `${scorecard}\n\n${guide}`,
+
+      `🎵 *Paani paani paani... peene ka time hai!* 💃\n\n` +
+      `Sab smooth chal raha hai — ek aur glass add karo!\n` +
+      `${scorecard}\n\n${guide}`
+    ];
+    return onTrackTemplates[Math.floor(Math.random() * onTrackTemplates.length)];
+  }
+
+  // --- AHEAD: Doing great, relaxed tone ---
+  if (urgency === 'ahead') {
+    const aheadTemplates = [
+      `🔥 *Arey waah! Aaj toh finish line ke ekdum paas ho!* 🚀\n\n` +
+      `${scorecard}\n` +
+      `Sirf *${remaining} ml* (~${remainingGlasses} glasses) baaki hai goal phodne ke liye! 🎯\n\n${guide}`,
+
+      `👑 *Kya baat hai champion! Pace ekdum zabardast hai!* 💪\n\n` +
+      `${scorecard}\n` +
+      `Thoda aur aur aaj ka goal done! Keep rocking! 🎸\n\n${guide}`
+    ];
+    return aheadTemplates[Math.floor(Math.random() * aheadTemplates.length)];
+  }
+
+  // --- CHILL: Way ahead, almost done ---
+  const chillTemplates = [
+    `😎 *Chill mode ON! Aaj toh bahut accha piya hai!*\n\n` +
+    `${scorecard}\n` +
+    `Bas thoda sa aur aur 🏆 trophy leke jaao! Koi rush nahi.\n\n${guide}`,
+
+    `🧘 *Relax karo boss — hydration game strong hai aaj!*\n\n` +
+    `${scorecard}\n` +
+    `Jab mann kare tab 1 glass aur pi lena. No pressure! ☕\n\n${guide}`
+  ];
+  return chillTemplates[Math.floor(Math.random() * chillTemplates.length)];
 };
+
 
 // 13. Good Morning Kickoff
 const getMorningKickoffMessage = (user, yesterdayLog) => {
@@ -345,18 +415,21 @@ const getHelpMessageHinglish = () => {
     `• */progress* — Aaj ka scorecard aur visual bar\n` +
     `• */undo* — Galti se galat enter hua toh wapas lo\n` +
     `• */goal 3000* — Daily target change karo\n` +
-    `• */interval 2* — Reminder ka frequency change karo\n` +
     `• */setup* — Sab kuch naye sire se set karo\n` +
     `• */status* — Current settings check karo\n` +
     `• */stop* — Reminders pause karo\n` +
     `• */start* — Reminders resume karo\n` +
     `• */reset* — Aaj ka intake 0 karo\n` +
-    `• */help* — Ye menu dekho`
+    `• */help* — Ye menu dekho\n\n` +
+    `🧠 *Smart Reminders:* Bot apne aap pace ke hisaab se\n` +
+    `reminder timing adjust karta hai — peeche ho toh zyada,\n` +
+    `aage ho toh kam!`
   );
 };
 
 module.exports = {
   createProgressBar,
+  getRandomNutritionTip,
   getWelcomeConsentMessage,
   getConsentCancelMessage,
   getInvalidConsentMessage,
@@ -365,8 +438,6 @@ module.exports = {
   getStepWakeMessage,
   getInvalidTimeMessage,
   getStepSleepMessage,
-  getStepIntervalMessage,
-  getInvalidIntervalMessage,
   getSetupCompleteMessage,
   getAdaptiveReminderMessage,
   getMorningKickoffMessage,

@@ -13,12 +13,20 @@ const startServer = async () => {
     // Attempt database connection
     await connectDB();
 
-    // Initialize background reminder scheduler
-    initReminderJob();
+    // Register a callback so the reminder job only starts AFTER WhatsApp connects.
+    // This prevents the cron from trying to send messages while the socket is still
+    // negotiating, which would cause failed sends and reconnect pressure.
+    whatsappDirectService.onConnected(() => {
+      logger.info('🔗 WhatsApp connected — now starting reminder scheduler...');
+      initReminderJob();
+    });
 
     // If direct WhatsApp provider is active, start terminal QR connection
     if ((process.env.WHATSAPP_PROVIDER || 'direct') === 'direct') {
       whatsappDirectService.initWhatsApp();
+    } else {
+      // Non-direct providers don't need the callback, start reminder immediately
+      initReminderJob();
     }
 
     const server = app.listen(PORT, () => {

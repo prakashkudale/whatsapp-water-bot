@@ -162,7 +162,6 @@ class UserService {
       return await waterService.undoLastIntake(user);
     }
 
-    // 5. Direct Inline Setting Updates (e.g. "goal 3000", "interval 2", "wake 8:00 AM", "sleep 11:00 PM")
     const goalChangeMatch = lowerInput.match(/^goal\s+(\d+)\s*(?:ml)?$/i);
     if (goalChangeMatch) {
       const newGoal = parseInt(goalChangeMatch[1], 10);
@@ -173,18 +172,6 @@ class UserService {
         return `🎯 *Daily target update ho gaya: ${newGoal} ml* (~${totalGlasses} glasses)!`;
       } else {
         return `⚠️ Please 500 se 15000 ml ke beech target choose kijiye (e.g. */goal 2500*).`;
-      }
-    }
-
-    const intervalChangeMatch = lowerInput.match(/^interval\s+(\d+)\s*(?:hours?|hrs?)?$/i);
-    if (intervalChangeMatch) {
-      const newInt = parseInt(intervalChangeMatch[1], 10);
-      if (newInt >= 1 && newInt <= 12) {
-        user.reminderInterval = newInt;
-        await user.save();
-        return `⏰ *Reminder frequency update ho gayi: Har ${newInt} ghante me!*`;
-      } else {
-        return `⚠️ 1 se 12 ghante ke beech frequency choose kijiye (e.g. */interval 2*).`;
       }
     }
 
@@ -343,7 +330,7 @@ class UserService {
         return hinglish.getStepSleepMessage();
       }
 
-      // Step 3: Sleep Time
+      // Step 3: Sleep Time (FINAL STEP)
       case 'AWAITING_SLEEP': {
         const parsedTime = parseTimeString(input, 'sleep');
         if (!parsedTime.valid) {
@@ -353,28 +340,12 @@ class UserService {
         user.sleepTime = parsedTime.formatted;
         user.sleepHour = parsedTime.hour24;
         user.sleepMinute = parsedTime.minute;
-        user.setupStep = 'AWAITING_INTERVAL';
-        await user.save();
-
-        return hinglish.getStepIntervalMessage();
-      }
-
-      // Step 4: Reminder Interval
-      case 'AWAITING_INTERVAL': {
-        // Accept "1", "1 hour", "1hr", "1 hr", "every 1 hour", "1h", "har 1 ghanta", "2", "2 hours", etc.
-        const intervalMatch = input.match(/(?:every\s+|har\s+)?(\d+)\s*(?:hours?|hrs?|h|ghante?|ghanta)?/i);
-        const interval = intervalMatch ? parseInt(intervalMatch[1], 10) : null;
-
-        if (!interval || interval < 1 || interval > 12) {
-          return hinglish.getInvalidIntervalMessage();
-        }
-
-        user.reminderInterval = interval;
+        
         user.setupCompleted = true;
         user.setupStep = 'NONE';
         user.isSubscribed = true;
         user.remindersEnabled = true;
-        user.lastReminderSentAt = new Date(); // Next reminder will fire after 1 interval
+        user.lastReminderSentAt = new Date(); // Next reminder will fire after smart interval
         user.lastReminderStatus = 'NONE';
         user.nudgeSentForCurrentReminder = false;
         await user.save();
@@ -403,7 +374,7 @@ class UserService {
       `• Reminders: ${statusIcon}\n` +
       `• Daily Target: ${user.dailyGoal} ml\n` +
       `• Active Window: ${user.wakeUpTime} to ${user.sleepTime}\n` +
-      `• Frequency: Har ${user.reminderInterval} ghante me\n` +
+      `• Frequency: 🧠 Smart Auto Mode\n` +
       `• Timezone: ${user.timezone}\n\n` +
       `━━━━━━━━━━━━━━━\n` +
       progressText

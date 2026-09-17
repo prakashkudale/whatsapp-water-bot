@@ -12,6 +12,23 @@ class WhatsAppDirectService {
     this.isConnected = false;
     this.authDir = path.join(process.cwd(), 'baileys_auth_info');
     this.sentMessageIds = new Set();
+
+    // --- Anti-Ban: Connection management state ---
+    this.retryCount = 0;              // Tracks consecutive failed reconnect attempts
+    this.MAX_RETRIES = 5;             // Stop reconnecting after this many failures
+    this.MAX_BACKOFF_MS = 60000;      // Max delay between retries (1 minute)
+    this.qrAttempts = 0;              // Tracks how many QR codes shown without a scan
+    this.MAX_QR_ATTEMPTS = 5;         // Stop generating QR codes after this many
+    this._onConnectedCallback = null; // Callback for server.js to know when we're ready
+  }
+
+  /**
+   * Register a callback that fires once when the connection is first established.
+   * Used by server.js to delay the reminder job until WhatsApp is actually connected.
+   * @param {Function} cb
+   */
+  onConnected(cb) {
+    this._onConnectedCallback = cb;
   }
 
   /**
@@ -22,7 +39,12 @@ class WhatsAppDirectService {
       // Dynamic import of ESM Baileys module
       const baileys = await import('@whiskeysockets/baileys');
       const makeWASocket = baileys.default || baileys.makeWASocket;
-      const { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = baileys;
+      const {
+        useMultiFileAuthState,
+        DisconnectReason,
+        fetchLatestBaileysVersion,
+        Browsers
+      } = baileys;
 
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
       const { version } = await fetchLatestBaileysVersion();
@@ -34,7 +56,23 @@ class WhatsAppDirectService {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         auth: state,
-        browser: ['WhatsApp Water Reminder Bot', 'Chrome', '1.0.0']
+
+        // ===== Anti-Ban Configuration =====
+        // Use Baileys' official Browsers helper — produces a protocol-correct tuple
+        // that matches what WhatsApp Web expects from a real macOS Chrome session.
+        browser: Browsers.macOS('Chrome'),
+
+        // Don't sync old message history on connect — reduces initial data burst
+        syncFullHistory: false,
+
+        // Don't broadcast "online" presence the instant we connect
+        markOnlineOnConnect: false,
+
+        // Don't generate link previews (reduces background HTTP requests)
+        generateHighQualityLinkPreview: false,
+
+        // Don't re-emit our own sent messages as incoming events
+        emitOwnEvents: false
       });
 
       // Save credentials whenever updated
@@ -45,8 +83,20 @@ class WhatsAppDirectService {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
+          this.qrAttempts++;
+
+          if (this.qrAttempts > this.MAX_QR_ATTEMPTS) {
+            logger.error(`⛔ QR code shown ${this.MAX_QR_ATTEMPTS} times without scan. Stopping to prevent WhatsApp from flagging this IP. Please restart the bot manually when ready to scan.`);
+            console.log('\n======================================================');
+            console.log('⛔ Too many unscanned QR codes. Bot stopped.');
+            console.log('   Restart with: npm start');
+            console.log('======================================================\n');
+            // Don't call initWhatsApp again — just stop
+            return;
+          }
+
           console.log('\n======================================================');
-          console.log('📱 SCAN THIS QR CODE WITH WHATSAPP TO LINK YOUR BOT:');
+          console.log(`📱 SCAN THIS QR CODE WITH WHATSAPP (Attempt ${this.qrAttempts}/${this.MAX_QR_ATTEMPTS}):`);
           console.log('👉 Open WhatsApp > Linked Devices > Link a Device');
           console.log('======================================================\n');
           qrcode.generate(qr, { small: true });
@@ -55,10 +105,14 @@ class WhatsAppDirectService {
         if (connection === 'close') {
           this.isConnected = false;
           const statusCode = (lastDisconnect?.error)?.output?.statusCode;
+          const errorMessage = lastDisconnect?.error?.message || 'Unknown';
           const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
 
+          logger.warn(`WhatsApp connection closed — Status: ${statusCode}, Reason: ${errorMessage}`);
+
           if (isLoggedOut) {
-            logger.warn('WhatsApp session logged out. Clearing old session and generating fresh QR code...');
+            // Session is dead. Clear credentials and let user re-scan.
+            logger.warn('Session logged out. Clearing old session for fresh QR code...');
             try {
               if (fs.existsSync(this.authDir)) {
                 fs.rmSync(this.authDir, { recursive: true, force: true });
@@ -66,17 +120,58 @@ class WhatsAppDirectService {
             } catch (e) {
               logger.error('Error removing authDir:', e.message);
             }
-            setTimeout(() => this.initWhatsApp(), 2000);
+            // Reset counters for fresh start
+            this.retryCount = 0;
+            this.qrAttempts = 0;
+            setTimeout(() => this.initWhatsApp(), 3000);
+
           } else {
-            logger.warn(`WhatsApp connection closed (status: ${statusCode}). Reconnecting in 5s...`);
-            setTimeout(() => this.initWhatsApp(), 5000);
+            // --- Exponential backoff with max retry cap ---
+            this.retryCount++;
+
+            if (this.retryCount > this.MAX_RETRIES) {
+              logger.error(`⛔ Failed to reconnect after ${this.MAX_RETRIES} attempts. Stopping auto-reconnect to protect your WhatsApp account. Please restart the bot manually.`);
+              console.log('\n======================================================');
+              console.log(`⛔ Reconnection failed ${this.MAX_RETRIES} times. Bot stopped.`);
+              console.log('   This prevents WhatsApp from banning your number.');
+              console.log('   Restart with: npm start');
+              console.log('======================================================\n');
+              return; // STOP — do not reconnect
+            }
+
+            // Exponential delay: 5s, 10s, 20s, 40s, 60s (capped)
+            const delay = Math.min(
+              Math.pow(2, this.retryCount - 1) * 5000,
+              this.MAX_BACKOFF_MS
+            );
+            // Add jitter (±20%) to avoid synchronized retries
+            const jitter = delay * (0.8 + Math.random() * 0.4);
+            const delaySec = Math.round(jitter / 1000);
+
+            logger.warn(`Reconnecting in ${delaySec}s (attempt ${this.retryCount}/${this.MAX_RETRIES})...`);
+            setTimeout(() => this.initWhatsApp(), jitter);
           }
+
         } else if (connection === 'open') {
           this.isConnected = true;
+          // Reset all counters on successful connection
+          this.retryCount = 0;
+          this.qrAttempts = 0;
+
           logger.info('🎉 WhatsApp successfully linked and connected!');
           console.log('\n======================================================');
           console.log('✅ WhatsApp Linked! Send "/setup" to subscribe & start.');
           console.log('======================================================\n');
+
+          // Fire the onConnected callback (used by server.js to start reminder job)
+          if (this._onConnectedCallback) {
+            try {
+              this._onConnectedCallback();
+            } catch (cbErr) {
+              logger.error('Error in onConnected callback:', cbErr.message);
+            }
+            this._onConnectedCallback = null; // Fire only once
+          }
         }
       });
 
@@ -88,14 +183,17 @@ class WhatsAppDirectService {
           for (const msg of m.messages) {
             if (!msg.message) continue;
 
+            // Skip messages sent by the bot itself
+            if (msg.key?.fromMe) continue;
+
             const remoteJid = msg.key?.remoteJid;
             if (!remoteJid || remoteJid === 'status@broadcast') continue;
 
             const msgId = msg.key?.id;
 
-            // Check if this message was sent by the bot's own outbound code
+            // Double-check: skip bot's own programmatic replies
             if (msgId && this.sentMessageIds.has(msgId)) {
-              continue; // Skip bot's own programmatic replies
+              continue;
             }
 
             // Extract clean phone number / user ID by removing device index (:1) and domain
@@ -213,7 +311,9 @@ class WhatsAppDirectService {
   }
 
   /**
-   * Send a WhatsApp text message to a phone number or JID
+   * Send a WhatsApp text message to a phone number or JID.
+   * NOTE: Security validation is handled by whatsappService.js (the caller).
+   *       This method does NOT duplicate the security check.
    * @param {string} to - Recipient phone number or JID
    * @param {string} text - Message text
    * @returns {Promise<{ success: boolean, messageId?: string, error?: string }>}
@@ -222,14 +322,6 @@ class WhatsAppDirectService {
     if (!this.sock || !this.isConnected) {
       logger.warn(`Cannot send message to ${to}: WhatsApp is not connected yet.`);
       return { success: false, error: 'WhatsApp not connected' };
-    }
-
-    // Security Gate: Validate recipient authorization and rate limits
-    const securityService = require('./securityService');
-    const secCheck = await securityService.validateOutboundMessage(to);
-    if (!secCheck.allowed) {
-      logger.warn(`[SECURITY INTERCEPT] Blocked message to ${to}: ${secCheck.reason}`);
-      return { success: false, error: secCheck.reason };
     }
 
     try {
@@ -247,6 +339,11 @@ class WhatsAppDirectService {
       const msgId = sentMsg?.key?.id;
       if (msgId) {
         this.sentMessageIds.add(msgId);
+        // Prevent sentMessageIds from growing forever (keep last 500)
+        if (this.sentMessageIds.size > 500) {
+          const first = this.sentMessageIds.values().next().value;
+          this.sentMessageIds.delete(first);
+        }
       }
       return { success: true, messageId: msgId };
     } catch (error) {
