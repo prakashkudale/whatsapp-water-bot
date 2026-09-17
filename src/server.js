@@ -14,10 +14,10 @@ const startServer = async () => {
     initReminderJob();
     logger.info('🧠 Smart Reminder Scheduler started');
 
-    const server = app.listen(PORT, () => {
-      logger.info(`🚀 HydroSmart API running on port ${PORT}`);
-      logger.info(`👉 Health check: http://localhost:${PORT}/health`);
-      logger.info(`📱 API Base: http://localhost:${PORT}/api`);
+    const HOST = process.env.IP || '::';
+    const server = app.listen(PORT, HOST, () => {
+      logger.info(`🚀 HydroSmart API running on http://${HOST === '::' ? 'localhost' : HOST}:${PORT}`);
+      logger.info(`👉 Health check: http://${HOST === '::' ? 'localhost' : HOST}:${PORT}/health`);
     });
 
     // Graceful Shutdown
