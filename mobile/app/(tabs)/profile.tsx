@@ -612,22 +612,6 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {/* Notification Style Preview */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>
-              <Ionicons name="notifications" size={14} color={Colors.textMuted} /> Notification Style
-            </Text>
-            <View style={styles.notifPreview}>
-              <View style={styles.notifHeader}>
-                <Text style={styles.notifApp}>HydroSmart</Text>
-                <Text style={styles.notifTime}>now</Text>
-              </View>
-              <Text style={styles.notifTitle}>🌵 Cactus Alert!</Text>
-              <Text style={styles.notifBody}>Cactus bhi paani maangta hai — aur tum? Utho, gatak lo!</Text>
-            </View>
-            <Text style={styles.notifHint}>Pace ke hisaab se automatically alag alag funny Hinglish notifications aayenge!</Text>
-          </View>
-
           {/* App info */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
