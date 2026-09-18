@@ -2,9 +2,14 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI, waterAPI, statsAPI } from '../services/api';
 import type { DndWindow } from '../services/api';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 // Safe audio player
 const playWaterSound = async () => {
+  // Prevent RedBox in Expo Go by skipping audio entirely
+  const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+  if (isExpoGo) return;
+
   try {
     const { Audio } = require('expo-av');
     await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
