@@ -180,4 +180,70 @@ const updatePushToken = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getProfile, updateSetup, updatePushToken };
+/**
+ * PUT /api/user/dnd/quick
+ * Set a temporary quick mute for N minutes
+ */
+const setQuickMute = async (req, res) => {
+  try {
+    const { minutes } = req.body;
+    const mins = parseInt(minutes, 10);
+    if (isNaN(mins) || mins < 1 || mins > 1440) {
+      return res.status(400).json({ success: false, message: 'minutes must be between 1 and 1440' });
+    }
+    const dndUntil = new Date(Date.now() + mins * 60 * 1000);
+    req.user.dndUntil = dndUntil;
+    await req.user.save();
+    res.json({ success: true, message: `Notifications muted for ${mins} minutes`, dndUntil });
+  } catch (err) {
+    logger.error('SetQuickMute error:', err.message);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * DELETE /api/user/dnd/quick
+ * Cancel the active quick mute immediately
+ */
+const cancelQuickMute = async (req, res) => {
+  try {
+    req.user.dndUntil = null;
+    await req.user.save();
+    res.json({ success: true, message: 'Quick mute cancelled. Notifications resumed!' });
+  } catch (err) {
+    logger.error('CancelQuickMute error:', err.message);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+/**
+ * PUT /api/user/dnd/schedule
+ * Save weekly recurring DND schedule
+ * Body: { enabled: boolean, schedule: [{ days: number[], startHour, startMinute, endHour, endMinute }] }
+ */
+const saveDndSchedule = async (req, res) => {
+  try {
+    const { enabled, schedule } = req.body;
+    if (enabled !== undefined) req.user.dndScheduleEnabled = Boolean(enabled);
+    if (schedule !== undefined) {
+      if (!Array.isArray(schedule)) {
+        return res.status(400).json({ success: false, message: 'schedule must be an array' });
+      }
+      req.user.dndSchedule = schedule.map(w => ({
+        days: (w.days || []).filter(d => d >= 0 && d <= 6),
+        startHour: Math.min(23, Math.max(0, parseInt(w.startHour, 10) || 22)),
+        startMinute: Math.min(59, Math.max(0, parseInt(w.startMinute, 10) || 0)),
+        endHour: Math.min(23, Math.max(0, parseInt(w.endHour, 10) || 8)),
+        endMinute: Math.min(59, Math.max(0, parseInt(w.endMinute, 10) || 0)),
+      }));
+    }
+    await req.user.save();
+    res.json({ success: true, message: 'DND schedule saved!', dndScheduleEnabled: req.user.dndScheduleEnabled, dndSchedule: req.user.dndSchedule });
+  } catch (err) {
+    logger.error('SaveDndSchedule error:', err.message);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+module.exports = { register, login, getProfile, updateSetup, updatePushToken, setQuickMute, cancelQuickMute, saveDndSchedule };
+

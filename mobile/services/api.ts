@@ -1,4 +1,12 @@
 import axios from 'axios';
+
+export interface DndWindow {
+  days: number[];
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+}
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Change this to your machine's local IP when testing via Expo Go on phone
@@ -42,6 +50,17 @@ export const authAPI = {
 
   registerPushToken: (expoPushToken: string) =>
     api.put('/user/push-token', { expoPushToken }),
+
+  // DND — Quick Mute
+  setQuickMute: (minutes: number) =>
+    api.put('/user/dnd/quick', { minutes }),
+
+  cancelQuickMute: () =>
+    api.delete('/user/dnd/quick'),
+
+  // DND — Weekly Schedule
+  saveDndSchedule: (enabled: boolean, schedule: DndWindow[]) =>
+    api.put('/user/dnd/schedule', { enabled, schedule }),
 };
 
 // ============= Water =============

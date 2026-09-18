@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { DndWindow } from '../../services/api';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Switch, Alert, StatusBar, Modal, TextInput, Platform,
@@ -287,7 +288,7 @@ function SettingRow({
 
 // ===================== Profile Screen =====================
 export default function ProfileScreen() {
-  const { user, logout, updateSetup } = useAppStore();
+  const { user, logout, updateSetup, setQuickMute, cancelQuickMute, saveDndSchedule } = useAppStore();
   const [remindersEnabled, setRemindersEnabled] = useState(user?.remindersEnabled ?? true);
   const [saving, setSaving] = useState(false);
 
@@ -295,6 +296,16 @@ export default function ProfileScreen() {
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [showWakeModal, setShowWakeModal] = useState(false);
   const [showSleepModal, setShowSleepModal] = useState(false);
+
+  // DND state
+  const [dndScheduleEnabled, setDndScheduleEnabled] = useState(user?.dndScheduleEnabled ?? false);
+  const [dndDays, setDndDays] = useState<number[]>(user?.dndSchedule?.[0]?.days ?? [0, 6]);
+  const [dndStartHour, setDndStartHour] = useState(user?.dndSchedule?.[0]?.startHour ?? 22);
+  const [dndStartMinute, setDndStartMinute] = useState(user?.dndSchedule?.[0]?.startMinute ?? 0);
+  const [dndEndHour, setDndEndHour] = useState(user?.dndSchedule?.[0]?.endHour ?? 8);
+  const [dndEndMinute, setDndEndMinute] = useState(user?.dndSchedule?.[0]?.endMinute ?? 0);
+  const [showDndScheduleSection, setShowDndScheduleSection] = useState(false);
+  const [showDndTimePicker, setShowDndTimePicker] = useState<'start' | 'end' | null>(null);
 
   const handleRemindersToggle = async (val: boolean) => {
     setRemindersEnabled(val);
@@ -349,6 +360,67 @@ export default function ProfileScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // DND helpers
+  const isDndActive = !!(user?.dndUntil && new Date(user.dndUntil) > new Date());
+  const dndUntilDate = user?.dndUntil ? new Date(user.dndUntil) : null;
+  const dndUntilStr = dndUntilDate
+    ? dndUntilDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  const QUICK_MUTE_OPTIONS = [
+    { label: '1 hr', minutes: 60 },
+    { label: '2 hrs', minutes: 120 },
+    { label: '4 hrs', minutes: 240 },
+    { label: 'Morning', minutes: (() => {
+      const now = new Date();
+      const morning = new Date();
+      morning.setHours(8, 0, 0, 0);
+      if (morning <= now) morning.setDate(morning.getDate() + 1);
+      return Math.round((morning.getTime() - now.getTime()) / 60000);
+    })() },
+  ];
+
+  const DAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const fmt = (n: number) => String(n).padStart(2, '0');
+  const fmtTime = (h: number, m: number) => {
+    const period = h >= 12 ? 'PM' : 'AM';
+    const dh = h % 12 === 0 ? 12 : h % 12;
+    return `${dh}:${fmt(m)} ${period}`;
+  };
+
+  const handleQuickMute = async (minutes: number) => {
+    try {
+      await setQuickMute(minutes);
+      const label = minutes < 60 ? `${minutes} min` : minutes < 120 ? '1 ghante' : minutes < 300 ? `${minutes / 60} ghante` : 'morning tak';
+      Alert.alert('🔕 Mute!', `Notifications ${label} ke liye band ho gaye!`);
+    } catch {
+      Alert.alert('Error', 'Mute set nahi hua, try again karo!');
+    }
+  };
+
+  const handleCancelMute = async () => {
+    try {
+      await cancelQuickMute();
+      Alert.alert('🔔 Unmuted!', 'Notifications wapas shuru ho gaye!');
+    } catch {
+      Alert.alert('Error', 'Cancel nahi hua!');
+    }
+  };
+
+  const handleSaveDndSchedule = async () => {
+    try {
+      const schedule: DndWindow[] = [{ days: dndDays, startHour: dndStartHour, startMinute: dndStartMinute, endHour: dndEndHour, endMinute: dndEndMinute }];
+      await saveDndSchedule(dndScheduleEnabled, schedule);
+      Alert.alert('Saved!', 'DND schedule set ho gaya! 📅');
+    } catch {
+      Alert.alert('Error', 'Schedule save nahi hua!');
+    }
+  };
+
+  const toggleDndDay = (day: number) => {
+    setDndDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
   };
 
   const handleLogout = () => {
@@ -417,6 +489,129 @@ export default function ProfileScreen() {
             />
           </View>
 
+          {/* ===== DND CARD ===== */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>
+              <Ionicons name="moon" size={14} color={Colors.textMuted} /> Do Not Disturb (DND)
+            </Text>
+
+            {/* Active DND Banner */}
+            {isDndActive && (
+              <View style={dndStyles.activeBanner}>
+                <View style={dndStyles.activeBannerLeft}>
+                  <Ionicons name="moon" size={18} color="#C084FC" />
+                  <View>
+                    <Text style={dndStyles.activeBannerTitle}>🔕 DND Active</Text>
+                    <Text style={dndStyles.activeBannerSub}>Muted until {dndUntilStr}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={handleCancelMute} style={dndStyles.cancelMuteBtn}>
+                  <Text style={dndStyles.cancelMuteText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Quick Mute Buttons */}
+            <Text style={dndStyles.subLabel}>Quick Mute</Text>
+            <View style={dndStyles.quickMuteRow}>
+              {QUICK_MUTE_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.label}
+                  style={[dndStyles.quickBtn, isDndActive && dndStyles.quickBtnActive]}
+                  onPress={() => handleQuickMute(opt.minutes)}
+                >
+                  <Ionicons name="moon-outline" size={12} color={isDndActive ? '#C084FC' : Colors.textMuted} />
+                  <Text style={[dndStyles.quickBtnText, isDndActive && dndStyles.quickBtnTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={styles.divider} />
+
+            {/* Weekly Schedule Toggle */}
+            <TouchableOpacity
+              style={dndStyles.scheduleHeader}
+              onPress={() => setShowDndScheduleSection(v => !v)}
+              activeOpacity={0.7}
+            >
+              <View style={dndStyles.scheduleHeaderLeft}>
+                <Ionicons name="calendar-outline" size={16} color={Colors.primary} />
+                <Text style={dndStyles.scheduleHeaderText}>Weekly Schedule</Text>
+                {dndScheduleEnabled && (
+                  <View style={dndStyles.scheduleBadge}>
+                    <Text style={dndStyles.scheduleBadgeText}>ON</Text>
+                  </View>
+                )}
+              </View>
+              <Ionicons
+                name={showDndScheduleSection ? 'chevron-up' : 'chevron-down'}
+                size={16} color={Colors.textDim}
+              />
+            </TouchableOpacity>
+
+            {showDndScheduleSection && (
+              <View style={dndStyles.scheduleBody}>
+                {/* Enable toggle */}
+                <View style={dndStyles.scheduleEnableRow}>
+                  <Text style={dndStyles.scheduleEnableLabel}>Enable Weekly DND</Text>
+                  <Switch
+                    value={dndScheduleEnabled}
+                    onValueChange={setDndScheduleEnabled}
+                    trackColor={{ false: Colors.bgCard, true: '#C084FC80' }}
+                    thumbColor={dndScheduleEnabled ? '#C084FC' : Colors.textDim}
+                  />
+                </View>
+
+                {/* Day Selector */}
+                <Text style={dndStyles.scheduleSubLabel}>Select Days</Text>
+                <View style={dndStyles.dayRow}>
+                  {DAY_LABELS.map((label, idx) => (
+                    <TouchableOpacity
+                      key={idx}
+                      style={[dndStyles.dayBtn, dndDays.includes(idx) && dndStyles.dayBtnActive]}
+                      onPress={() => toggleDndDay(idx)}
+                    >
+                      <Text style={[dndStyles.dayBtnText, dndDays.includes(idx) && dndStyles.dayBtnTextActive]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Time range */}
+                <Text style={dndStyles.scheduleSubLabel}>Mute Time Range</Text>
+                <View style={dndStyles.timeRangeRow}>
+                  <TouchableOpacity
+                    style={dndStyles.timeRangeBtn}
+                    onPress={() => setShowDndTimePicker('start')}
+                  >
+                    <Ionicons name="time-outline" size={14} color={Colors.primary} />
+                    <Text style={dndStyles.timeRangeLabel}>From</Text>
+                    <Text style={dndStyles.timeRangeValue}>{fmtTime(dndStartHour, dndStartMinute)}</Text>
+                  </TouchableOpacity>
+                  <Ionicons name="arrow-forward" size={16} color={Colors.textDim} />
+                  <TouchableOpacity
+                    style={dndStyles.timeRangeBtn}
+                    onPress={() => setShowDndTimePicker('end')}
+                  >
+                    <Ionicons name="time-outline" size={14} color="#C084FC" />
+                    <Text style={dndStyles.timeRangeLabel}>Until</Text>
+                    <Text style={[dndStyles.timeRangeValue, { color: '#C084FC' }]}>{fmtTime(dndEndHour, dndEndMinute)}</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity style={dndStyles.saveScheduleBtn} onPress={handleSaveDndSchedule}>
+                  <LinearGradient colors={['rgba(192,132,252,0.3)', 'rgba(123,47,190,0.3)']} style={dndStyles.saveScheduleGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                    <Ionicons name="checkmark-circle" size={16} color="#C084FC" />
+                    <Text style={dndStyles.saveScheduleText}>Save Schedule</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
           {/* Notification Style Preview */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>
@@ -475,6 +670,23 @@ export default function ProfileScreen() {
         initialMinute={sleepMinute}
         onSave={handleSaveSleepTime}
         onClose={() => setShowSleepModal(false)}
+      />
+      {/* DND Time Pickers */}
+      <TimePickerModal
+        visible={showDndTimePicker === 'start'}
+        title="DND Start Time"
+        initialHour={dndStartHour}
+        initialMinute={dndStartMinute}
+        onSave={(h, m) => { setDndStartHour(h); setDndStartMinute(m); setShowDndTimePicker(null); }}
+        onClose={() => setShowDndTimePicker(null)}
+      />
+      <TimePickerModal
+        visible={showDndTimePicker === 'end'}
+        title="DND End Time"
+        initialHour={dndEndHour}
+        initialMinute={dndEndMinute}
+        onSave={(h, m) => { setDndEndHour(h); setDndEndMinute(m); setShowDndTimePicker(null); }}
+        onClose={() => setShowDndTimePicker(null)}
       />
     </SafeAreaView>
   );
@@ -543,3 +755,81 @@ const styles = StyleSheet.create({
   logoutText: { fontFamily: Fonts.bold, fontSize: 15, color: Colors.danger },
   bgCard: Colors.glass,
 });
+
+// ===== DND Styles =====
+const dndStyles = StyleSheet.create({
+  activeBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: 'rgba(192,132,252,0.15)',
+    borderRadius: Radius.md, padding: Spacing.md,
+    borderWidth: 1, borderColor: '#C084FC50',
+    marginBottom: Spacing.md,
+  },
+  activeBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  activeBannerTitle: { fontFamily: Fonts.bold, fontSize: 13, color: '#C084FC' },
+  activeBannerSub: { fontFamily: Fonts.regular, fontSize: 11, color: Colors.textMuted },
+  cancelMuteBtn: {
+    backgroundColor: 'rgba(192,132,252,0.2)', paddingHorizontal: 12,
+    paddingVertical: 6, borderRadius: Radius.full, borderWidth: 1, borderColor: '#C084FC50',
+  },
+  cancelMuteText: { fontFamily: Fonts.bold, fontSize: 12, color: '#C084FC' },
+  subLabel: { fontFamily: Fonts.bold, fontSize: 12, color: Colors.textMuted, marginBottom: Spacing.sm, letterSpacing: 0.5 },
+  quickMuteRow: { flexDirection: 'row', gap: Spacing.sm, flexWrap: 'wrap', marginBottom: Spacing.md },
+  quickBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: Radius.full, borderWidth: 1,
+    borderColor: Colors.glassBorder, backgroundColor: Colors.glass,
+  },
+  quickBtnActive: { backgroundColor: 'rgba(192,132,252,0.15)', borderColor: '#C084FC50' },
+  quickBtnText: { fontFamily: Fonts.medium, fontSize: 13, color: Colors.textMuted },
+  quickBtnTextActive: { color: '#C084FC' },
+  scheduleHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: Spacing.sm,
+  },
+  scheduleHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  scheduleHeaderText: { fontFamily: Fonts.medium, fontSize: 14, color: Colors.text },
+  scheduleBadge: {
+    backgroundColor: 'rgba(192,132,252,0.2)', paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 4, borderWidth: 1, borderColor: '#C084FC50',
+  },
+  scheduleBadgeText: { fontFamily: Fonts.bold, fontSize: 9, color: '#C084FC' },
+  scheduleBody: {
+    marginTop: Spacing.sm, paddingTop: Spacing.sm,
+    borderTopWidth: 1, borderTopColor: Colors.separator,
+  },
+  scheduleEnableRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: Spacing.md,
+  },
+  scheduleEnableLabel: { fontFamily: Fonts.medium, fontSize: 14, color: Colors.text },
+  scheduleSubLabel: { fontFamily: Fonts.bold, fontSize: 11, color: Colors.textMuted, marginBottom: Spacing.sm, letterSpacing: 0.5 },
+  dayRow: { flexDirection: 'row', gap: Spacing.xs ?? 4, marginBottom: Spacing.md },
+  dayBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: Colors.glassBorder,
+    backgroundColor: Colors.glass,
+  },
+  dayBtnActive: { backgroundColor: 'rgba(192,132,252,0.25)', borderColor: '#C084FC' },
+  dayBtnText: { fontFamily: Fonts.bold, fontSize: 11, color: Colors.textMuted },
+  dayBtnTextActive: { color: '#C084FC' },
+  timeRangeRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.md },
+  timeRangeBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: Colors.glass, borderRadius: Radius.md,
+    borderWidth: 1, borderColor: Colors.glassBorder,
+    paddingHorizontal: Spacing.sm, paddingVertical: 10,
+  },
+  timeRangeLabel: { fontFamily: Fonts.regular, fontSize: 11, color: Colors.textMuted, flex: 1 },
+  timeRangeValue: { fontFamily: Fonts.bold, fontSize: 13, color: Colors.primary },
+  saveScheduleBtn: { borderRadius: Radius.md, overflow: 'hidden' },
+  saveScheduleGrad: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 12,
+    borderWidth: 1, borderColor: '#C084FC30',
+  },
+  saveScheduleText: { fontFamily: Fonts.bold, fontSize: 14, color: '#C084FC' },
+});
+

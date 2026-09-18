@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI, waterAPI, statsAPI } from '../services/api';
+import type { DndWindow } from '../services/api';
 
 // Safe audio player — works in native APK, silently fails in Expo Go
 const playWaterSound = async () => {
@@ -25,10 +26,17 @@ interface User {
   phoneNumber: string;
   dailyGoal: number;
   wakeUpTime: string;
+  wakeUpHour?: number;
+  wakeUpMinute?: number;
   sleepTime: string;
+  sleepHour?: number;
+  sleepMinute?: number;
   setupCompleted: boolean;
   remindersEnabled: boolean;
   timezone: string;
+  dndUntil?: string | null;
+  dndScheduleEnabled?: boolean;
+  dndSchedule?: DndWindow[];
 }
 
 interface WaterLog {
@@ -64,6 +72,9 @@ interface AppState {
   loadStoredAuth: () => Promise<void>;
   updateSetup: (data: any) => Promise<void>;
   registerPushToken: (token: string) => Promise<void>;
+  setQuickMute: (minutes: number) => Promise<void>;
+  cancelQuickMute: () => Promise<void>;
+  saveDndSchedule: (enabled: boolean, schedule: DndWindow[]) => Promise<void>;
 
   // Actions — Water
   fetchProgress: () => Promise<void>;
@@ -131,6 +142,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await authAPI.registerPushToken(token);
     } catch (_) {}
+  },
+
+  setQuickMute: async (minutes: number) => {
+    const res = await authAPI.setQuickMute(minutes);
+    const dndUntil = res.data.dndUntil;
+    set(state => ({ user: state.user ? { ...state.user, dndUntil } : state.user }));
+  },
+
+  cancelQuickMute: async () => {
+    await authAPI.cancelQuickMute();
+    set(state => ({ user: state.user ? { ...state.user, dndUntil: null } : state.user }));
+  },
+
+  saveDndSchedule: async (enabled: boolean, schedule: DndWindow[]) => {
+    const res = await authAPI.saveDndSchedule(enabled, schedule);
+    set(state => ({
+      user: state.user ? { ...state.user, dndScheduleEnabled: res.data.dndScheduleEnabled, dndSchedule: res.data.dndSchedule } : state.user
+    }));
   },
 
   // ======= Water =======

@@ -97,8 +97,53 @@ class ReminderService {
   }
 
   /**
-   * Check all eligible users and execute scheduled reminders, morning kickoffs, and bedtime recaps
+   * Check if a user is currently in a Do Not Disturb window.
+   * Checks both the quick mute (dndUntil) and the weekly schedule.
+   * @param {object} user - User document
+   * @param {Date} now - Current UTC time
+   * @returns {boolean}
    */
+  isUserInDND(user, now) {
+    // Layer 1: Quick Mute — one-shot temporary silence
+    if (user.dndUntil && new Date(user.dndUntil) > now) {
+      const until = new Date(user.dndUntil).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      logger.debug(`[DND] Quick mute active for ${user.phoneNumber} until ${until}`);
+      return true;
+    }
+
+    // Layer 2: Weekly Schedule — recurring DND windows
+    if (user.dndScheduleEnabled && user.dndSchedule && user.dndSchedule.length > 0) {
+      // Get user's local time
+      const userTime = getCurrentTimeInTimezone(user.timezone || 'Asia/Kolkata');
+      const currentDay = userTime.date ? new Date(userTime.date).getDay() : new Date().getDay();
+      const currentMins = userTime.totalMinutes;
+
+      for (const window of user.dndSchedule) {
+        if (!window.days || !window.days.includes(currentDay)) continue;
+
+        const startMins = (window.startHour ?? 22) * 60 + (window.startMinute ?? 0);
+        const endMins = (window.endHour ?? 8) * 60 + (window.endMinute ?? 0);
+
+        // Handle overnight windows (e.g. 10 PM → 8 AM next day)
+        if (startMins > endMins) {
+          // Active if current time is AFTER start OR BEFORE end
+          if (currentMins >= startMins || currentMins < endMins) {
+            logger.debug(`[DND] Weekly schedule active for ${user.phoneNumber} (overnight window)`);
+            return true;
+          }
+        } else {
+          // Normal same-day window
+          if (currentMins >= startMins && currentMins < endMins) {
+            logger.debug(`[DND] Weekly schedule active for ${user.phoneNumber}`);
+            return true;
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
   /**
    * Check all eligible users and execute scheduled reminders, morning kickoffs, and bedtime recaps
    */
@@ -128,6 +173,11 @@ class ReminderService {
         try {
           // Skip the bot's own hosting number so it does not remind itself
           if (user.phoneNumber === '919978241539' || user.phoneNumber === '9978241539') {
+            continue;
+          }
+
+          // ===== DND CHECK — must happen before wake-window check =====
+          if (this.isUserInDND(user, now)) {
             continue;
           }
 

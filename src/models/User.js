@@ -127,6 +127,28 @@ const userSchema = new mongoose.Schema(
     lastEveningRecapDate: {
       type: String, // 'YYYY-MM-DD'
       default: null
+    },
+
+    // ===== Do Not Disturb (DND) =====
+    // Quick Mute: muted until this timestamp (one-shot, auto-expires)
+    dndUntil: {
+      type: Date,
+      default: null
+    },
+    // Weekly Schedule: recurring DND windows
+    dndSchedule: {
+      type: [{
+        days: [{ type: Number, min: 0, max: 6 }], // 0=Sun...6=Sat
+        startHour: { type: Number, default: 22 },
+        startMinute: { type: Number, default: 0 },
+        endHour: { type: Number, default: 8 },
+        endMinute: { type: Number, default: 0 },
+      }],
+      default: []
+    },
+    dndScheduleEnabled: {
+      type: Boolean,
+      default: false
     }
   },
   {
