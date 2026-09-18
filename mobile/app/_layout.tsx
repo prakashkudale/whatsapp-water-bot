@@ -57,13 +57,17 @@ async function registerForPushNotifications(registerTokenFn: (token: string) => 
 
     // Create Android notification channel
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('hydrosmart-reminders', {
-        name: 'HydroSmart Reminders',
-        importance: Notifications.AndroidImportance.HIGH,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#00D4FF',
-        sound: 'notification_sound',
-      });
+      try {
+        await Notifications.setNotificationChannelAsync('hydrosmart-reminders', {
+          name: 'HydroSmart Reminders',
+          importance: Notifications.AndroidImportance.HIGH,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#00D4FF',
+          sound: 'notification_sound',
+        });
+      } catch (channelErr) {
+        console.log('[Push] Failed to create custom channel, falling back to default:', channelErr);
+      }
     }
 
     // Get the push token
