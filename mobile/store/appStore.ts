@@ -2,11 +2,11 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI, waterAPI, statsAPI } from '../services/api';
 import type { DndWindow } from '../services/api';
+import { Audio } from 'expo-av';
 
-// Safe audio player — works in native APK, silently fails in Expo Go
+// Safe audio player
 const playWaterSound = async () => {
   try {
-    const { Audio } = await import('expo-av');
     await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
     const { sound } = await Audio.Sound.createAsync(
       require('../assets/notification_sound.wav')
@@ -15,8 +15,8 @@ const playWaterSound = async () => {
     sound.setOnPlaybackStatusUpdate((status: any) => {
       if (status.didJustFinish) sound.unloadAsync();
     });
-  } catch (_) {
-    // expo-av not available (Expo Go) — fail silently
+  } catch (err) {
+    console.log('[Audio] Failed to play sound:', err);
   }
 };
 
