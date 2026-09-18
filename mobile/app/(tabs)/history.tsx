@@ -42,17 +42,41 @@ const dayCellStyles = StyleSheet.create({
   pct: { fontFamily: Fonts.regular, fontSize: 8, color: '#fff' },
 });
 
+function PercentBar({ pct }: { pct: number }) {
+  const color = pct >= 100 ? Colors.success : pct >= 60 ? Colors.primary : pct >= 30 ? Colors.warning : Colors.danger;
+  return (
+    <View style={barStyles.track}>
+      <View style={[barStyles.fill, { width: `${Math.min(pct, 100)}%` as any, backgroundColor: color }]} />
+    </View>
+  );
+}
+
+const barStyles = StyleSheet.create({
+  track: {
+    height: 4,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 4,
+    marginTop: 4,
+    overflow: 'hidden',
+    width: 80,
+  },
+  fill: { height: '100%', borderRadius: 4 },
+});
+
 export default function HistoryScreen() {
-  const { fetchProgress } = useAppStore();
   const [history, setHistory] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const loadHistory = async () => {
     try {
       const { waterAPI } = await import('../../services/api');
       const res = await waterAPI.getHistory(30);
-      setHistory(res.data.logs);
-    } catch (err) {}
+      setHistory(res.data.logs || []);
+    } catch (err) {
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { loadHistory(); }, []);
@@ -61,6 +85,14 @@ export default function HistoryScreen() {
     setRefreshing(true);
     await loadHistory();
     setRefreshing(false);
+  };
+
+  // Fix timezone issue: parse date string directly without converting to local Date
+  const formatDate = (dateStr: string) => {
+    const parts = (dateStr || '').split('T')[0].split('-');
+    if (parts.length < 3) return dateStr;
+    const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
   };
 
   return (
@@ -76,52 +108,70 @@ export default function HistoryScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
         >
-          {/* Heatmap calendar */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Monthly Heatmap</Text>
-            <View style={styles.grid}>
-              {history.slice().reverse().map((log, i) => (
-                <DayCell key={i} log={log} />
-              ))}
+          {/* Empty state */}
+          {!loading && history.length === 0 && (
+            <View style={styles.emptyState}>
+              <Ionicons name="water-outline" size={64} color={Colors.textDim} />
+              <Text style={styles.emptyTitle}>Koi history nahi mili!</Text>
+              <Text style={styles.emptySubtitle}>Home screen pe paani log karo aur yahan dikhega.</Text>
             </View>
+          )}
 
-            {/* Legend */}
-            <View style={styles.legend}>
-              {[
-                { color: Colors.success, label: '100%' },
-                { color: Colors.primary, label: '60%+' },
-                { color: Colors.warning, label: '30%+' },
-                { color: Colors.danger, label: '<30%' },
-              ].map(({ color, label }) => (
-                <View key={label} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: color + '40', borderColor: color }]} />
-                  <Text style={styles.legendLabel}>{label}</Text>
-                </View>
-              ))}
+          {/* Heatmap calendar */}
+          {history.length > 0 && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Monthly Heatmap</Text>
+              <View style={styles.grid}>
+                {history.slice().reverse().map((log, i) => (
+                  <DayCell key={i} log={log} />
+                ))}
+              </View>
+
+              {/* Legend */}
+              <View style={styles.legend}>
+                {[
+                  { color: Colors.success, label: '100%' },
+                  { color: Colors.primary, label: '60%+' },
+                  { color: Colors.warning, label: '30%+' },
+                  { color: Colors.danger, label: '<30%' },
+                ].map(({ color, label }) => (
+                  <View key={label} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: color + '40', borderColor: color }]} />
+                    <Text style={styles.legendLabel}>{label}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
+          )}
 
           {/* Recent log list */}
-          <Text style={styles.sectionTitle}>Recent Logs</Text>
-          {history.slice(0, 10).map((log, i) => {
-            const date = new Date(log.date);
-            const dateStr = date.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
-            return (
-              <View key={i} style={styles.logRow}>
-                <View style={styles.logLeft}>
-                  <Text style={styles.logDate}>{dateStr}</Text>
-                  <Text style={styles.logEntries}>{(log.entries?.length ?? 0)} entries</Text>
-                </View>
-                <View style={styles.logRight}>
-                  <Text style={[styles.logAmount, { color: log.goalCompleted ? Colors.success : Colors.primary }]}>
-                    {log.totalConsumed} ml
-                  </Text>
-                  <Text style={styles.logGoal}>of {log.goal} ml</Text>
-                </View>
-                {log.goalCompleted && <Ionicons name="trophy" size={20} color={Colors.warning} style={{ marginLeft: 4 }} />}
-              </View>
-            );
-          })}
+          {history.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Recent Logs</Text>
+              {history.slice(0, 14).map((log, i) => {
+                const pct = log.percentage ?? 0;
+                return (
+                  <View key={i} style={styles.logRow}>
+                    <View style={styles.logLeft}>
+                      <Text style={styles.logDate}>{formatDate(log.date)}</Text>
+                      <PercentBar pct={pct} />
+                      <Text style={styles.logEntries}>{(log.entries?.length ?? log.entriesCount ?? 0)} entries</Text>
+                    </View>
+                    <View style={styles.logRight}>
+                      <Text style={[styles.logAmount, { color: log.goalCompleted ? Colors.success : Colors.primary }]}>
+                        {log.totalConsumed} ml
+                      </Text>
+                      <Text style={styles.logGoal}>of {log.goal} ml</Text>
+                      <Text style={[styles.logPct, { color: pct >= 100 ? Colors.success : pct >= 60 ? Colors.primary : Colors.warning }]}>
+                        {pct}%
+                      </Text>
+                    </View>
+                    {log.goalCompleted && <Ionicons name="trophy" size={20} color={Colors.warning} style={{ marginLeft: 4 }} />}
+                  </View>
+                );
+              })}
+            </>
+          )}
 
           <View style={{ height: 32 }} />
         </ScrollView>
@@ -136,6 +186,25 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, paddingBottom: Spacing.sm },
   title: { fontFamily: Fonts.extrabold, fontSize: 24, color: Colors.text },
   subtitle: { fontFamily: Fonts.regular, fontSize: 13, color: Colors.textMuted },
+  emptyState: {
+    alignItems: 'center',
+    paddingTop: 80,
+    paddingHorizontal: Spacing.xl,
+  },
+  emptyTitle: {
+    fontFamily: Fonts.bold,
+    fontSize: 18,
+    color: Colors.textMuted,
+    marginTop: Spacing.md,
+  },
+  emptySubtitle: {
+    fontFamily: Fonts.regular,
+    fontSize: 13,
+    color: Colors.textDim,
+    textAlign: 'center',
+    marginTop: Spacing.sm,
+    lineHeight: 20,
+  },
   card: {
     margin: Spacing.lg,
     backgroundColor: Colors.glass,
@@ -162,9 +231,9 @@ const styles = StyleSheet.create({
   },
   logLeft: { flex: 1 },
   logDate: { fontFamily: Fonts.bold, fontSize: 14, color: Colors.text },
-  logEntries: { fontFamily: Fonts.regular, fontSize: 11, color: Colors.textMuted },
+  logEntries: { fontFamily: Fonts.regular, fontSize: 11, color: Colors.textMuted, marginTop: 2 },
   logRight: { alignItems: 'flex-end', marginRight: Spacing.sm },
   logAmount: { fontFamily: Fonts.bold, fontSize: 15 },
   logGoal: { fontFamily: Fonts.regular, fontSize: 11, color: Colors.textMuted },
-  goalBadge: { fontSize: 18 },
+  logPct: { fontFamily: Fonts.bold, fontSize: 11, marginTop: 2 },
 });

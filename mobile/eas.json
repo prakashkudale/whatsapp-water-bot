@@ -1,0 +1,24 @@
+{
+  "cli": {
+    "version": ">= 14.2.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "NODE_VERSION": "22.11.0",
+        "EXPO_PUBLIC_API_URL": "https://prakash.alwaysdata.net/api"
+      }
+    },
+    "production": {}
+  },
+  "submit": {
+    "production": {}
+  }
+}

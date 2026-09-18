@@ -18,7 +18,9 @@
       "bundleIdentifier": "com.hydrosmart.app",
       "infoPlist": {
         "NSCameraUsageDescription": "Camera access not needed",
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -27,7 +29,10 @@
         "backgroundColor": "#0A1628"
       },
       "package": "com.hydrosmart.app",
-      "permissions": ["RECEIVE_BOOT_COMPLETED", "SCHEDULE_EXACT_ALARM"]
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "SCHEDULE_EXACT_ALARM"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,10 +42,12 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
+          "icon": "./assets/notification_icon.png",
           "color": "#00D4FF",
           "defaultChannel": "hydrosmart-reminders",
-          "sounds": ["./assets/notification-sound.wav"]
+          "sounds": [
+            "./assets/notification_sound.wav"
+          ]
         }
       ],
       "expo-font"
@@ -49,8 +56,9 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "bdda0ae4-b34c-4ada-91cb-c26685959cfa"
       }
     }
   }

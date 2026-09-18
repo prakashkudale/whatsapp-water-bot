@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, RefreshControl, StatusBar,
+  View, Text, StyleSheet, ScrollView, Dimensions, RefreshControl, StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,7 +9,7 @@ import { Colors, Gradients, Fonts, Spacing, Radius } from '../../constants/theme
 import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
-const BAR_MAX_HEIGHT = 160;
+const BAR_MAX_HEIGHT = 140;
 
 function WeekBarChart({ stats }: { stats: any[] }) {
   const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -18,11 +18,13 @@ function WeekBarChart({ stats }: { stats: any[] }) {
   return (
     <View style={chartStyles.container}>
       {stats.map((s, i) => {
-        const date = new Date(s.date);
-        const day = days[date.getDay()];
+        // Timezone-safe: parse date directly from string
+        const parts = (s.date || '').split('T')[0].split('-');
+        const dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        const day = days[dateObj.getDay()];
         const height = Math.max(8, (s.totalConsumed / maxConsumed) * BAR_MAX_HEIGHT);
         const isToday = i === stats.length - 1;
-        const pct = s.percentage;
+        const pct = s.percentage ?? 0;
         const barColor = pct >= 100 ? Colors.success : pct >= 60 ? Colors.primary : Colors.warning;
 
         return (
@@ -75,8 +77,14 @@ export default function StatsScreen() {
     setRefreshing(false);
   };
 
-  const totalThisWeek = weeklyStats.reduce((acc, s) => acc + s.totalConsumed, 0);
+  const totalThisWeek = weeklyStats.reduce((acc, s) => acc + (s.totalConsumed ?? 0), 0);
   const goalsHit = weeklyStats.filter(s => s.goalCompleted).length;
+  const daysWithData = weeklyStats.filter(s => s.totalConsumed > 0);
+  const avgDaily = daysWithData.length > 0
+    ? Math.round(totalThisWeek / daysWithData.length)
+    : 0;
+  const bestDay = weeklyStats.reduce((best, s) => s.totalConsumed > (best?.totalConsumed ?? 0) ? s : best, null as any);
+  const bestDayAmount = bestDay?.totalConsumed ?? 0;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -90,7 +98,7 @@ export default function StatsScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />}
         >
-          {/* Summary Cards */}
+          {/* Summary Row 1: Streak / Goals Hit / This Week */}
           <View style={styles.summaryRow}>
             <View style={styles.summaryCard}>
               <Ionicons name="flame" size={24} color="#C084FC" style={styles.summaryIcon} />
@@ -99,13 +107,27 @@ export default function StatsScreen() {
             </View>
             <View style={styles.summaryCard}>
               <Ionicons name="trophy" size={24} color={Colors.warning} style={styles.summaryIcon} />
-              <Text style={styles.summaryValue}>{goalsHit}</Text>
-              <Text style={styles.summaryLabel}>Goals Hit (7d)</Text>
+              <Text style={styles.summaryValue}>{goalsHit}/7</Text>
+              <Text style={styles.summaryLabel}>Goals Hit</Text>
             </View>
             <View style={styles.summaryCard}>
               <Ionicons name="water" size={24} color={Colors.primary} style={styles.summaryIcon} />
               <Text style={styles.summaryValue}>{(totalThisWeek / 1000).toFixed(1)}L</Text>
               <Text style={styles.summaryLabel}>This Week</Text>
+            </View>
+          </View>
+
+          {/* Summary Row 2: Avg Daily / Best Day */}
+          <View style={[styles.summaryRow, { marginTop: 0 }]}>
+            <View style={[styles.summaryCard, styles.summaryCardWide]}>
+              <Ionicons name="stats-chart" size={22} color={Colors.primary} style={styles.summaryIcon} />
+              <Text style={styles.summaryValue}>{avgDaily > 0 ? `${avgDaily}ml` : '—'}</Text>
+              <Text style={styles.summaryLabel}>Avg Daily (7d)</Text>
+            </View>
+            <View style={[styles.summaryCard, styles.summaryCardWide]}>
+              <Ionicons name="star" size={22} color="#FFD700" style={styles.summaryIcon} />
+              <Text style={styles.summaryValue}>{bestDayAmount > 0 ? `${bestDayAmount}ml` : '—'}</Text>
+              <Text style={styles.summaryLabel}>Best Day (7d)</Text>
             </View>
           </View>
 
@@ -115,7 +137,10 @@ export default function StatsScreen() {
             {weeklyStats.length > 0 ? (
               <WeekBarChart stats={weeklyStats} />
             ) : (
-              <Text style={styles.emptyText}>Pehle kuch pao, tab chart dikhega! 😄</Text>
+              <View style={styles.emptyChart}>
+                <Ionicons name="bar-chart-outline" size={48} color={Colors.textDim} />
+                <Text style={styles.emptyText}>Pehle kuch pao, tab chart dikhega!</Text>
+              </View>
             )}
           </View>
 
@@ -123,7 +148,7 @@ export default function StatsScreen() {
           <View style={styles.tipCard}>
             <LinearGradient colors={['rgba(0,212,255,0.1)', 'rgba(123,47,190,0.08)']} style={styles.tipGradient}>
               <View style={styles.tipHeader}>
-                <Ionicons name="barbell" size={20} color={Colors.primary} />
+                <Ionicons name="bulb" size={20} color={Colors.primary} />
                 <Text style={styles.tipTitle}>Aaj Ka Nutrition Tip</Text>
               </View>
               <Text style={styles.tipText}>{nutritionTip}</Text>
@@ -156,7 +181,12 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md, paddingBottom: Spacing.sm },
   title: { fontFamily: Fonts.extrabold, fontSize: 24, color: Colors.text },
-  summaryRow: { flexDirection: 'row', paddingHorizontal: Spacing.lg, gap: Spacing.sm, marginBottom: Spacing.md },
+  summaryRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
   summaryCard: {
     flex: 1,
     backgroundColor: Colors.glass,
@@ -166,9 +196,12 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     alignItems: 'center',
   },
+  summaryCardWide: {
+    flex: 1,
+  },
   summaryIcon: { marginBottom: 6 },
-  summaryValue: { fontFamily: Fonts.extrabold, fontSize: 20, color: Colors.text },
-  summaryLabel: { fontFamily: Fonts.regular, fontSize: 10, color: Colors.textMuted, textAlign: 'center' },
+  summaryValue: { fontFamily: Fonts.extrabold, fontSize: 18, color: Colors.text },
+  summaryLabel: { fontFamily: Fonts.regular, fontSize: 10, color: Colors.textMuted, textAlign: 'center', marginTop: 2 },
   chartCard: {
     marginHorizontal: Spacing.lg,
     backgroundColor: Colors.glass,
@@ -177,9 +210,11 @@ const styles = StyleSheet.create({
     borderColor: Colors.glassBorder,
     padding: Spacing.md,
     marginBottom: Spacing.md,
+    marginTop: Spacing.sm,
   },
   cardTitle: { fontFamily: Fonts.bold, fontSize: 15, color: Colors.text, marginBottom: Spacing.sm },
-  emptyText: { fontFamily: Fonts.regular, fontSize: 13, color: Colors.textMuted, textAlign: 'center', paddingVertical: Spacing.lg },
+  emptyChart: { alignItems: 'center', paddingVertical: Spacing.xl },
+  emptyText: { fontFamily: Fonts.regular, fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.sm },
   tipCard: { marginHorizontal: Spacing.lg, borderRadius: Radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: Colors.glassBorder, marginBottom: Spacing.md },
   tipGradient: { padding: Spacing.md },
   tipHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },

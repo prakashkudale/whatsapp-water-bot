@@ -2,6 +2,23 @@ import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authAPI, waterAPI, statsAPI } from '../services/api';
 
+// Safe audio player — works in native APK, silently fails in Expo Go
+const playWaterSound = async () => {
+  try {
+    const { Audio } = await import('expo-av');
+    await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+    const { sound } = await Audio.Sound.createAsync(
+      require('../assets/notification_sound.wav')
+    );
+    await sound.playAsync();
+    sound.setOnPlaybackStatusUpdate((status: any) => {
+      if (status.didJustFinish) sound.unloadAsync();
+    });
+  } catch (_) {
+    // expo-av not available (Expo Go) — fail silently
+  }
+};
+
 interface User {
   id: string;
   name: string;
@@ -20,6 +37,7 @@ interface WaterLog {
   percentage: number;
   remaining: number;
   goalCompleted: boolean;
+  entriesCount: number;
   entries: { amount: number; timestamp: string }[];
   date: string;
 }
@@ -121,7 +139,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   logWater: async (amount, label) => {
     const res = await waterAPI.log(amount, label);
     set({ todayLog: { ...res.data.log, date: get().todayLog?.date || '' } });
-    
+    // Play water sound (works in production APK, silent in Expo Go)
+    playWaterSound();
     return { justCompletedGoal: res.data.justCompletedGoal };
   },
 
