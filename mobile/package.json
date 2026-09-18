@@ -8,7 +8,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "axios": "^1.20.0",
     "expo": "~57.0.24",
-    "expo-av": "^16.0.8",
+    "expo-audio": "~57.0.5",
     "expo-blur": "^57.0.3",
     "expo-constants": "^57.0.18",
     "expo-device": "^57.0.2",

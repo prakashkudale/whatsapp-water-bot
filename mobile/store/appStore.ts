@@ -11,15 +11,10 @@ const playWaterSound = async () => {
   if (isExpoGo) return;
 
   try {
-    const { Audio } = require('expo-av');
-    await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-    const { sound } = await Audio.Sound.createAsync(
-      require('../assets/notification_sound.wav')
-    );
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate((status: any) => {
-      if (status.didJustFinish) sound.unloadAsync();
-    });
+    const { createAudioPlayer, setAudioModeAsync } = require('expo-audio');
+    await setAudioModeAsync({ playsInSilentMode: true });
+    const player = createAudioPlayer(require('../assets/notification_sound.wav'));
+    player.play();
   } catch (err) {
     console.log('[Audio] Failed to play sound:', err);
   }

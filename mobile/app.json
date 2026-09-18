@@ -51,7 +51,8 @@
         }
       ],
       "expo-font",
-      "./split-apk-plugin.js"
+      "./split-apk-plugin.js",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true
