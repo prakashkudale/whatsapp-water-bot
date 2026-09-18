@@ -63,6 +63,7 @@ interface AppState {
   logout: () => Promise<void>;
   loadStoredAuth: () => Promise<void>;
   updateSetup: (data: any) => Promise<void>;
+  registerPushToken: (token: string) => Promise<void>;
 
   // Actions — Water
   fetchProgress: () => Promise<void>;
@@ -124,6 +125,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updatedUser = { ...get().user, ...res.data.user } as User;
     set({ user: updatedUser });
     await AsyncStorage.setItem('hydrosmart_user', JSON.stringify(updatedUser));
+  },
+
+  registerPushToken: async (token: string) => {
+    try {
+      await authAPI.registerPushToken(token);
+    } catch (_) {}
   },
 
   // ======= Water =======
