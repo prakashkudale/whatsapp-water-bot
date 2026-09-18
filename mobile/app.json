@@ -50,7 +50,8 @@
           ]
         }
       ],
-      "expo-font"
+      "expo-font",
+      "./split-apk-plugin.js"
     ],
     "experiments": {
       "typedRoutes": true
