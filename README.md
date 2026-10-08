@@ -2,7 +2,7 @@
 
 A lightweight, reliable, and intelligent personal WhatsApp Water Reminder Bot built with **Node.js, Express, MongoDB, and Mongoose**. It automatically tracks your daily hydration, sends adaptive reminders based on your wake-up and sleep schedule, visually graphs your daily progress, and stops reminders as soon as you complete your daily goal.
 
----
+---         
 
 ## 🌟 Features
 
@@ -17,7 +17,7 @@ A lightweight, reliable, and intelligent personal WhatsApp Water Reminder Bot bu
   * No reminders sent during sleep hours.
   * No reminders sent after you achieve your goal for the day.
   * Duplicate reminder protection (`lastReminderSentAt`).
-* **Daily Reset**: Date-aware daily calendar logging (`YYYY-MM-DD` in your local timezone) while preserving complete historical records in MongoDB.
+* **Daily Reset**: Date-aware daily calendar logging (`YYYY-MM-DD` in your local timezone) while preserving complete historical records in MongoDB.   
 * **Dual WhatsApp Support**: Works with self-hosted gateways (**OpenWA**) as well as official **Meta WhatsApp Cloud API**.
 
 ---
@@ -27,7 +27,7 @@ A lightweight, reliable, and intelligent personal WhatsApp Water Reminder Bot bu
 ```text
 water-reminder-bot/
 │
-├── src/
+├── src/    
 │   ├── config/
 │   │   └── db.js                 # Resilient MongoDB Mongoose connection
 │   ├── controllers/

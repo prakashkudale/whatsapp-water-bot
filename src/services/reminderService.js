@@ -2,6 +2,7 @@ const User = require('../models/User');
 const WaterLog = require('../models/WaterLog');
 const waterService = require('./waterService');
 const pushNotificationService = require('./pushNotificationService');
+const { getHinglishNotification } = require('./pushNotificationService');
 const {
   getCurrentDateString,
   getPreviousDateString,
@@ -30,7 +31,8 @@ class ReminderService {
    * @returns {string}
    */
   generateBedtimeRecapText(user, todayLog) {
-    return hinglish.getBedtimeRecapMessage(user, todayLog);
+    const n = getHinglishNotification('bedtime');
+    return n.body;
   }
 
   /**
@@ -42,7 +44,8 @@ class ReminderService {
    * @returns {string} Adaptive reminder text
    */
   generateAdaptiveReminderText(goal, totalConsumed, user, urgency = 'ontrack') {
-    return hinglish.getAdaptiveReminderMessage(goal, totalConsumed, user, urgency);
+    const n = getHinglishNotification(urgency);
+    return n.body;
   }
 
   /**
@@ -355,8 +358,6 @@ class ReminderService {
 
           const todayLog = await waterService.getOrCreateTodayLog(user);
           if (todayLog.goalCompleted || todayLog.totalConsumed >= todayLog.goal) continue;
-
-          const nudgeText = hinglish.getGentleNudgeMessage();
 
           const destination = user.whatsappJid || user.phoneNumber;
           logger.info(`🔔 Sending nudge push to ${user.phoneNumber}`);
